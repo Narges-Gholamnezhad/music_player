@@ -8,13 +8,14 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
-import 'subscription_screen.dart' as sub_screen; // <--- اطمینان از وجود این import
+import 'subscription_screen.dart' as sub_screen;
 import 'favorites_screen.dart';
 import 'edit_profile_screen.dart';
 import 'main.dart'; // برای دسترسی به activeThemeMode
 import 'shared_pref_keys.dart';
 import 'user_auth_provider.dart';
-import 'splash_screen.dart'; // برای ناوبری پس از logout
+import 'login_screen.dart';
+import 'signup_screen.dart';
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
@@ -63,7 +64,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       tempImageFile = File(imagePath);
       if (!await tempImageFile.exists()) {
         tempImageFile = null;
-        await _prefs!.remove(SharedPrefKeys.userProfileImagePath);
+        if (_prefs != null) { // اطمینان از null نبودن prefs
+          await _prefs!.remove(SharedPrefKeys.userProfileImagePath);
+        }
       }
     }
 
@@ -73,13 +76,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     else if (savedTheme == 'dark') themeToSet = ThemeMode.dark;
     else themeToSet = ThemeMode.system;
 
-    setState(() {
-      _profileImageFile = tempImageFile;
-      if (_currentAppTheme != themeToSet) {
-        _currentAppTheme = themeToSet;
-      }
-      _isScreenSpecificDataLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _profileImageFile = tempImageFile;
+        if (_currentAppTheme != themeToSet) {
+          _currentAppTheme = themeToSet;
+        }
+        _isScreenSpecificDataLoading = false;
+      });
+    }
   }
 
   Future<void> _showImageSourceActionSheet(BuildContext context) async {
@@ -111,7 +116,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    if (_prefs == null) _prefs = await SharedPreferences.getInstance();
+    _prefs ??= await SharedPreferences.getInstance(); // اطمینان از مقداردهی اولیه
     PermissionStatus status;
     if (source == ImageSource.camera) {
       status = await Permission.camera.request();
@@ -119,12 +124,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (Platform.isAndroid) {
         DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
         final AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-        if (androidInfo.version.sdkInt >= 33) {
+        if (androidInfo.version.sdkInt >= 33) { // Android 13+
           status = await Permission.photos.request();
         } else {
           status = await Permission.storage.request();
         }
-      } else {
+      } else { // iOS or other platforms
         status = await Permission.photos.request();
       }
     }
@@ -138,15 +143,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           final String fileName = 'profile_pic_${DateTime.now().millisecondsSinceEpoch}.jpg';
           final String newPath = '${appDir.path}/$fileName';
 
+          // حذف عکس قبلی اگر وجود دارد و مسیرش متفاوت است
           if (_profileImageFile != null && await _profileImageFile!.exists()) {
             try {
-              if (_profileImageFile!.path != newPath) {
+              if (_profileImageFile!.path != newPath) { // فقط اگر مسیر متفاوت است حذف کن
                 await _profileImageFile!.delete();
               }
-            } catch (e) { print("Error deleting old profile picture: $e"); }
+            } catch (e) {
+              print("Error deleting old profile picture: $e");
+            }
           }
+
           final File savedImage = await newImage.copy(newPath);
-          if(mounted){
+          if (mounted) {
             setState(() => _profileImageFile = savedImage);
             await _prefs!.setString(SharedPrefKeys.userProfileImagePath, savedImage.path);
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile picture updated!")));
@@ -170,8 +179,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-
   void _editProfile() async {
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn) {
+      _promptLogin("edit your profile");
+      return;
+    }
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (context) => const EditProfileScreen()),
@@ -181,11 +194,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  void _navigateToFavorites() {
+  void _navigateToFavorites() async {
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn) {
+      _promptLogin("view your favorites");
+      return;
+    }
     Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesScreen()));
   }
 
   void _manageSubscription() async {
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn) {
+      _promptLogin("manage your subscription");
+      return;
+    }
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (context) => const sub_screen.SubscriptionScreen()),
@@ -225,17 +248,31 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       },
     );
   }
+
   void _addCredit() {
     _showActionDialog("Add Credit", "This feature (Add Credit) is not yet implemented.");
   }
+
   void _contactSupport() {
     _showActionDialog("Contact Support", "This feature (Contact Support/Online Chat) is not yet implemented.");
   }
+
   void _deleteAccount() {
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn) {
+      _promptLogin("delete your account");
+      return;
+    }
     _showActionDialog(
         "Delete Account",
         "Are you sure you want to delete your account? This action cannot be undone and all your data will be lost.",
-        onConfirm: () { /* ... TODO ... */ },
+        onConfirm: () {
+          // TODO: پیاده‌سازی واقعی حذف حساب (ارتباط با بک‌اند)
+          print("UserProfileScreen: Delete account confirmed (TODO: implement actual deletion)");
+          // پس از حذف موفق از سرور، کاربر را logout کنید
+          Provider.of<UserAuthProvider>(context, listen: false).logout();
+          // UserProfileScreen خود به خود رفرش شده و حالت لاگین نشده را نشان می‌دهد
+        },
         confirmText: "Yes, Delete"
     );
   }
@@ -246,12 +283,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         "Are you sure you want to logout?",
         onConfirm: () async {
           await Provider.of<UserAuthProvider>(context, listen: false).logout();
-          if (mounted) {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (context) => const SplashScreen()),
-                  (route) => false,
-            );
-          }
         },
         confirmText: "Yes, Logout"
     );
@@ -260,12 +291,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Future<void> _changeThemeMode(ThemeMode? newMode) async {
     if (newMode == null) return;
     _prefs ??= await SharedPreferences.getInstance();
-
     String themeString;
     if (newMode == ThemeMode.light) themeString = 'light';
     else if (newMode == ThemeMode.dark) themeString = 'dark';
     else themeString = 'system';
-
     await _prefs!.setString(SharedPrefKeys.appThemeMode, themeString);
     activeThemeMode.value = newMode;
   }
@@ -276,21 +305,84 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     return "System Default";
   }
 
+  void _navigateToLogin() {
+    Navigator.push(context, MaterialPageRoute(builder: (context) => const LoginScreen()));
+  }
+
+  void _navigateToSignUp() {
+    Navigator.push(context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
+  }
+
+  void _promptLogin(String action) {
+    if (mounted) { // بررسی mounted بودن قبل از نمایش SnackBar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please login or sign up to $action.'),
+          action: SnackBarAction(
+            label: 'Login',
+            onPressed: _navigateToLogin,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userAuthProvider = Provider.of<UserAuthProvider>(context);
-
     final ThemeData theme = Theme.of(context);
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
 
-    if (userAuthProvider.isLoading || _isScreenSpecificDataLoading) {
+    if (_isScreenSpecificDataLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    if (!userAuthProvider.isLoggedIn) {
+      // UI برای کاربر لاگین نکرده
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.account_circle_outlined, size: 80, color: colorScheme.primary.withOpacity(0.7)),
+                const SizedBox(height: 24),
+                Text(
+                  'Welcome to Your Account',
+                  textAlign: TextAlign.center,
+                  style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Login or create an account to manage your profile, subscriptions, and favorites.',
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+                ),
+                const SizedBox(height: 40),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: _navigateToLogin,
+                  child: const Text('Login'),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: _navigateToSignUp,
+                  child: const Text('Sign Up'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // UI برای کاربر لاگین کرده
     final String userName = userAuthProvider.username ?? "User";
     final String userEmail = userAuthProvider.email ?? "No email";
-    // اینجا باید از userAuthProvider.userSubscriptionTier استفاده شود
     final sub_screen.SubscriptionTier currentUserSubscriptionTier = userAuthProvider.userSubscriptionTier;
     final DateTime? userSubscriptionExpiryDate = userAuthProvider.userSubscriptionExpiryDate;
     final String userCreditString = userAuthProvider.userCredit.toStringAsFixed(1);
@@ -309,7 +401,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       }
     } else {
       subscriptionStatusText = "${currentUserSubscriptionTier.name.toUpperCase()} Plan";
-      if (userSubscriptionExpiryDate != null) { // این شرط اضافی است چون در بالا بررسی شده
+      if (userSubscriptionExpiryDate != null) {
         subscriptionStatusText += " (Expires: ${userSubscriptionExpiryDate.day}/${userSubscriptionExpiryDate.month}/${userSubscriptionExpiryDate.year})";
       }
       subscriptionTextColor = Colors.green.shade400;
@@ -319,7 +411,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       body: RefreshIndicator(
         onRefresh: () async {
           await _loadScreenSpecificData();
-          if(mounted) {
+          if (mounted) {
             await Provider.of<UserAuthProvider>(context, listen: false).reloadUserDataFromPrefs();
           }
         },
@@ -447,7 +539,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // این متدها باید در کلاس شما وجود داشته باشند
   Widget _buildInfoCard(BuildContext context, {required List<Widget> children}) {
     return Card(
       elevation: 1,
