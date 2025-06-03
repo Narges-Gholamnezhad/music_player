@@ -1,7 +1,7 @@
 // lib/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:on_audio_query/on_audio_query.dart'; // اگر از QueryArtworkWidget استفاده می‌کنید
+import 'package:on_audio_query/on_audio_query.dart';
 import 'song_model.dart';
 import 'song_detail_screen.dart';
 import 'shared_pref_keys.dart';
@@ -22,7 +22,7 @@ class HomeScreenState extends State<HomeScreen> {
   SharedPreferences? _prefs;
   bool _isLoading = true;
   String _loadingError = '';
-  String _currentSortCriteria = 'title_asc';
+  String _currentSortCriteria = 'date_desc'; // پیش‌فرض: جدیدترین آهنگ‌ها اول
 
   final List<Song> _initialSampleUserMusic = [
     Song(
@@ -32,7 +32,8 @@ class HomeScreenState extends State<HomeScreen> {
         audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3",
         isDownloaded: false,
         isLocal: true,
-        averageRating: 4.5),
+        averageRating: 4.5,
+        dateAdded: DateTime(2023, 10, 20, 10, 0, 0)),
     Song(
         title: "Another Favorite Sample",
         artist: "User Choice B",
@@ -40,7 +41,8 @@ class HomeScreenState extends State<HomeScreen> {
         audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3",
         isDownloaded: false,
         isLocal: true,
-        averageRating: 4.2),
+        averageRating: 4.2,
+        dateAdded: DateTime(2023, 11, 5, 15, 30, 0)),
   ];
 
   final ScrollController _scrollController = ScrollController();
@@ -77,7 +79,6 @@ class HomeScreenState extends State<HomeScreen> {
         _favoriteSongUniqueIdentifiers = favoriteIds.toSet();
       });
     }
-    print("HomeScreen: Favorite unique identifiers refreshed: ${_favoriteSongUniqueIdentifiers.length} items.");
   }
 
   Future<List<Song>> _getDownloadedSongsFromShop() async {
@@ -87,13 +88,11 @@ class HomeScreenState extends State<HomeScreen> {
     for (String dataString in downloadedDataStrings) {
       try {
         final song = Song.fromDataString(dataString);
-        // await song.loadLyrics(_prefs!); // فقط اگر lyrics در لیست نمایش داده می‌شود
-        parsedSongs.add(song.copyWith(isDownloaded: true, isLocal: false));
+        parsedSongs.add(song.copyWith(isDownloaded: true, isLocal: song.isLocal));
       } catch (e) {
         print("HomeScreen: Error parsing downloaded song data: $dataString, Error: $e");
       }
     }
-    print("HomeScreen: Loaded ${parsedSongs.length} downloaded songs from shop.");
     return parsedSongs;
   }
 
@@ -101,13 +100,14 @@ class HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     if (!forceRefresh && !_isLoading && _myMusicCollection.isNotEmpty && _loadingError.isEmpty) {
-      print("HomeScreen: Data exists, attempting to update downloaded songs and then filter/sort.");
       List<Song> downloadedFromShop = await _getDownloadedSongsFromShop();
       List<Song> newCombinedMusic = List.from(_initialSampleUserMusic);
-
       for (var shopSong in downloadedFromShop) {
         if (!newCombinedMusic.any((s) => s.uniqueIdentifier == shopSong.uniqueIdentifier)) {
           newCombinedMusic.add(shopSong);
+        } else {
+          final index = newCombinedMusic.indexWhere((s) => s.uniqueIdentifier == shopSong.uniqueIdentifier);
+          if (index != -1) newCombinedMusic[index] = shopSong;
         }
       }
       if (mounted) {
@@ -117,18 +117,19 @@ class HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    print("HomeScreen: Loading My Music collection data. Force refresh: $forceRefresh");
     setState(() {
       _isLoading = true;
       _loadingError = '';
     });
 
     List<Song> combinedMusic = List.from(_initialSampleUserMusic);
-
     List<Song> downloadedFromShop = await _getDownloadedSongsFromShop();
     for (var shopSong in downloadedFromShop) {
       if (!combinedMusic.any((s) => s.uniqueIdentifier == shopSong.uniqueIdentifier)) {
         combinedMusic.add(shopSong);
+      } else {
+        final index = combinedMusic.indexWhere((s) => s.uniqueIdentifier == shopSong.uniqueIdentifier);
+        if (index != -1) combinedMusic[index] = shopSong;
       }
     }
 
@@ -137,19 +138,16 @@ class HomeScreenState extends State<HomeScreen> {
     _loadingError = '';
     _applyFilterAndSort();
     setState(() => _isLoading = false);
-    print("HomeScreen: My Music collection loaded with ${_myMusicCollection.length} songs.");
   }
 
   Future<void> _toggleFavoriteStatus(Song song) async {
     _prefs ??= await SharedPreferences.getInstance();
     List<String> currentFavoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
     List<String> currentFavoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
-
     final uniqueId = song.uniqueIdentifier;
     bool isCurrentlyPersistedAsFavorite = currentFavoriteIds.contains(uniqueId);
     String message;
 
-    // وضعیت UI را بلافاصله تغییر می‌دهیم و سپس در SharedPreferences ذخیره می‌کنیم
     if (mounted) {
       setState(() {
         if (!isCurrentlyPersistedAsFavorite) {
@@ -163,18 +161,17 @@ class HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    // حالا SharedPreferences را آپدیت کن
     if (!isCurrentlyPersistedAsFavorite) {
-      if (!currentFavoriteIds.contains(uniqueId)) { // برای جلوگیری از افزودن تکراری اگر همزمان چند جا toggle شود
+      if (!currentFavoriteIds.contains(uniqueId)) {
         currentFavoriteIds.add(uniqueId);
-        currentFavoriteDataStrings.add(song.toDataString());
+        final Song songWithDate = song.copyWith(dateAdded: DateTime.now());
+        currentFavoriteDataStrings.add(songWithDate.toDataString());
       }
     } else {
       currentFavoriteIds.remove(uniqueId);
       currentFavoriteDataStrings.removeWhere((dataStr) {
         try {
-          final songFromData = Song.fromDataString(dataStr);
-          return songFromData.uniqueIdentifier == uniqueId;
+          return Song.fromDataString(dataStr).uniqueIdentifier == uniqueId;
         } catch (e) { return false; }
       });
     }
@@ -206,14 +203,39 @@ class HomeScreenState extends State<HomeScreen> {
     if (_myMusicCollection.isEmpty) return;
     _myMusicCollection.sort((a, b) {
       int comparisonResult;
-      if (_currentSortCriteria.startsWith('title')) {
-        comparisonResult = a.title.toLowerCase().compareTo(b.title.toLowerCase());
-      } else if (_currentSortCriteria.startsWith('artist')) {
-        comparisonResult = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
-      } else {
-        comparisonResult = 0;
+      switch (_currentSortCriteria) {
+        case 'title_asc':
+          comparisonResult = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          break;
+        case 'title_desc':
+          comparisonResult = b.title.toLowerCase().compareTo(a.title.toLowerCase());
+          break;
+        case 'artist_asc':
+          comparisonResult = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+          break;
+        case 'artist_desc':
+          comparisonResult = b.artist.toLowerCase().compareTo(a.artist.toLowerCase());
+          break;
+        case 'date_desc':
+          final dateA = a.effectiveDateAdded;
+          final dateB = b.effectiveDateAdded;
+          if (dateA == null && dateB == null) comparisonResult = 0;
+          else if (dateA == null) comparisonResult = 1;
+          else if (dateB == null) comparisonResult = -1;
+          else comparisonResult = dateB.compareTo(dateA);
+          break;
+        case 'date_asc':
+          final dateA = a.effectiveDateAdded;
+          final dateB = b.effectiveDateAdded;
+          if (dateA == null && dateB == null) comparisonResult = 0;
+          else if (dateA == null) comparisonResult = 1;
+          else if (dateB == null) comparisonResult = -1;
+          else comparisonResult = dateA.compareTo(dateB);
+          break;
+        default:
+          comparisonResult = 0;
       }
-      return _currentSortCriteria.endsWith('_asc') ? comparisonResult : -comparisonResult;
+      return comparisonResult;
     });
   }
 
@@ -225,41 +247,29 @@ class HomeScreenState extends State<HomeScreen> {
 
   void sortMusic(String criteria) {
     if (!mounted) return;
-    if (_currentSortCriteria == criteria && _myMusicCollection.isNotEmpty) return;
-    setState(() {
-      _currentSortCriteria = criteria;
-    });
+    setState(() => _currentSortCriteria = criteria);
     _applyFilterAndSort();
   }
 
-  Future<void> refreshDataOnReturn() async { // <--- تبدیل به async
+  Future<void> refreshDataOnReturn() async {
     if (!mounted) return;
-    print("HomeScreen (My Music): refreshDataOnReturn called.");
-    await _loadFavoriteSongIdentifiers(); // <--- استفاده از await
-    if (mounted) {
-      await _loadMyMusicCollectionData(forceRefresh: false); // <--- استفاده از await
-    }
+    await _loadFavoriteSongIdentifiers();
+    if (mounted) await _loadMyMusicCollectionData(forceRefresh: true);
   }
 
-  Future<void> scrollToTopAndRefresh() async { // <--- تبدیل به async
+  Future<void> scrollToTopAndRefresh() async {
     if (!mounted) return;
     if (_scrollController.hasClients) {
-      await _scrollController.animateTo(0.0, // <--- استفاده از await
+      await _scrollController.animateTo(0.0,
           duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
-    await _loadFavoriteSongIdentifiers(); // <--- استفاده از await
-    if (mounted) {
-      await _loadMyMusicCollectionData(forceRefresh: true); // <--- استفاده از await
-    }
+    await _loadFavoriteSongIdentifiers();
+    if (mounted) await _loadMyMusicCollectionData(forceRefresh: true);
   }
 
-  Future<void> _navigateToSongDetail(BuildContext context, Song song, int indexInFilteredList) async { // <--- تبدیل به async
+  Future<void> _navigateToSongDetail(BuildContext context, Song song, int indexInFilteredList) async {
     _prefs ??= await SharedPreferences.getInstance();
     await song.loadLyrics(_prefs!);
-
-    print("HomeScreen: Navigating to detail for '${song.title}' UID: ${song.uniqueIdentifier}");
-    // Navigator.push(...).then(...) را با await جایگزین می‌کنیم اگر نیازی به نتیجه بازگشتی فوری نیست
-    // و refreshDataOnReturn در هر صورت انجام می‌شود.
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -270,10 +280,7 @@ class HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    // این کد پس از بسته شدن SongDetailScreen اجرا می‌شود.
-    if (mounted) { // <--- اضافه کردن mounted check
-      await refreshDataOnReturn(); // <--- استفاده از await
-    }
+    if (mounted) await refreshDataOnReturn();
   }
 
   @override
@@ -286,14 +293,14 @@ class HomeScreenState extends State<HomeScreen> {
     if (_isLoading) {
       bodyContent = const Center(child: CircularProgressIndicator());
     } else if (_loadingError.isNotEmpty) {
-      bodyContent = Center( /* ... */ ); // محتوای قبلی بدون تغییر
+      bodyContent = Center(child: Text(_loadingError, textAlign: TextAlign.center, style: textTheme.bodyLarge?.copyWith(color: colorScheme.error)));
     } else if (_myMusicCollection.isEmpty) {
-      bodyContent = Center( /* ... */ ); // محتوای قبلی بدون تغییر
+      bodyContent = Center(child: Text("No music found in 'My Music'.\nDownload songs or check your local files.", textAlign: TextAlign.center, style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurface.withOpacity(0.7))));
     } else if (_filteredMyMusicCollection.isEmpty && _searchController.text.isNotEmpty) {
-      bodyContent = Center( /* ... */ ); // محتوای قبلی بدون تغییر
+      bodyContent = Center(child: Text("No music found for '${_searchController.text}'.", style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurface.withOpacity(0.7))));
     } else {
       bodyContent = RefreshIndicator(
-        onRefresh: scrollToTopAndRefresh, // دیگر نیاز به async جدا نیست
+        onRefresh: scrollToTopAndRefresh,
         color: colorScheme.primary,
         child: ListView.builder(
           controller: _scrollController,
@@ -306,61 +313,41 @@ class HomeScreenState extends State<HomeScreen> {
             Widget leadingWidget;
             if (song.isLocal && song.mediaStoreId != null && song.mediaStoreId! > 0) {
               leadingWidget = SizedBox(
-                width: 55,
-                height: 55,
+                width: 55, height: 55,
                 child: QueryArtworkWidget(
                   id: song.mediaStoreId!,
                   type: ArtworkType.AUDIO,
                   artworkFit: BoxFit.cover,
                   artworkBorder: BorderRadius.circular(6.0),
                   artworkClipBehavior: Clip.antiAlias,
-                  // NO padding parameter for on_audio_query: ^2.9.0
                   nullArtworkWidget: Container(
                       width: 55, height: 55,
-                      decoration: BoxDecoration(
-                          color: colorScheme.surfaceVariant.withOpacity(0.5),
-                          borderRadius: BorderRadius.circular(6.0)),
+                      decoration: BoxDecoration(color: colorScheme.surfaceVariant.withOpacity(0.5), borderRadius: BorderRadius.circular(6.0)),
                       child: Icon(Icons.music_note_rounded, color: colorScheme.onSurfaceVariant.withOpacity(0.6), size: 30)),
                   errorBuilder: (ctx, err, st) => Container(
                       width: 55, height: 55,
-                      decoration: BoxDecoration(
-                          color: (colorScheme.errorContainer ?? Colors.red).withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(6.0)),
+                      decoration: BoxDecoration(color: (colorScheme.errorContainer ?? Colors.red).withOpacity(0.3), borderRadius: BorderRadius.circular(6.0)),
                       child: Icon(Icons.broken_image_outlined, color: colorScheme.onErrorContainer?.withOpacity(0.6) ?? Colors.redAccent, size: 30)),
                 ),
               );
-            }
-            else if (song.coverImagePath != null && song.coverImagePath!.isNotEmpty) {
-              leadingWidget = ClipRRect(/* ... */); // محتوای قبلی بدون تغییر
-            } else {
-              leadingWidget = Container(/* ... */); // محتوای قبلی بدون تغییر
-            }
-            // برای اختصار، کدهای Image.asset و Container پیش‌فرض را حذف کردم، آنها باید مانند قبل باشند.
-            // اطمینان حاصل کنید که کدهای مربوط به leadingWidget که قبلا کار می‌کردند را اینجا قرار دهید.
-            // کدی که برای coverImagePath و حالت پیش‌فرض داشتید:
-            if (song.coverImagePath != null && song.coverImagePath!.isNotEmpty) {
+            } else if (song.coverImagePath != null && song.coverImagePath!.isNotEmpty) {
               leadingWidget = ClipRRect(
                   borderRadius: BorderRadius.circular(6.0),
                   child: Image.asset(song.coverImagePath!,
                       width: 55, height: 55, fit: BoxFit.cover,
                       errorBuilder: (ctx, err, st) => Container(
                           width: 55, height: 55,
-                          decoration: BoxDecoration(
-                              color: colorScheme.surfaceVariant.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(6.0)),
+                          decoration: BoxDecoration(color: colorScheme.surfaceVariant.withOpacity(0.5), borderRadius: BorderRadius.circular(6.0)),
                           child: Icon(Icons.album_rounded, color: colorScheme.onSurfaceVariant.withOpacity(0.6), size: 30))
                   )
               );
-            } else if (!(song.isLocal && song.mediaStoreId != null && song.mediaStoreId! > 0)) { // اگر محلی با آرت‌ورک نیست
+            } else {
               leadingWidget = Container(
                   width: 55, height: 55,
-                  decoration: BoxDecoration(
-                      color: colorScheme.surfaceVariant.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(6.0)),
+                  decoration: BoxDecoration(color: colorScheme.surfaceVariant.withOpacity(0.5), borderRadius: BorderRadius.circular(6.0)),
                   child: Icon(Icons.music_note_rounded, color: colorScheme.onSurfaceVariant.withOpacity(0.6), size: 30)
               );
             }
-            // اگر آهنگ محلی است و mediaStoreId دارد، leadingWidget قبلا مقداردهی شده.
 
             return ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -373,14 +360,18 @@ class HomeScreenState extends State<HomeScreen> {
                   if (song.isDownloaded)
                     Padding(
                       padding: const EdgeInsets.only(right: 8.0),
-                      child: Icon(Icons.get_app_rounded, color: colorScheme.primary.withOpacity(0.7), size: 20),
+                      // **** اصلاح شده ****
+                      child: Tooltip(
+                        message: "Downloaded",
+                        child: Icon(Icons.get_app_rounded, color: colorScheme.primary.withOpacity(0.7), size: 20),
+                      ),
                     ),
                   IconButton(
                       icon: Icon(
                           isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                           color: isFavorite ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.6),
                           size: 24),
-                      tooltip: isFavorite ? "Remove from favorites" : "Add to favorites",
+                      tooltip: isFavorite ? "Remove from favorites" : "Add to favorites", // IconButton از tooltip پشتیبانی می‌کند
                       onPressed: () => _toggleFavoriteStatus(song)),
                 ],
               ),
@@ -404,8 +395,8 @@ class HomeScreenState extends State<HomeScreen> {
               suffixIcon: _searchController.text.isNotEmpty
                   ? IconButton(
                   icon: Icon(Icons.clear_rounded, color: colorScheme.onSurface.withOpacity(0.6)),
-                  onPressed: () => _searchController.clear()
-              )
+                  tooltip: "Clear search", // IconButton از tooltip پشتیبانی می‌کند
+                  onPressed: () => _searchController.clear())
                   : null,
             ),
           ),

@@ -1,7 +1,7 @@
 // lib/song_model.dart
 import 'package:shared_preferences/shared_preferences.dart';
-import 'shared_pref_keys.dart'; // <--- استفاده از کلیدهای مشترک
-import 'dart:math'; // <--- اضافه کردن این import برای تابع min
+import 'shared_pref_keys.dart';
+import 'dart:math'; // برای تابع min
 
 enum SongAccessTier {
   free,
@@ -17,11 +17,14 @@ class Song {
   final double price;
   final double averageRating;
   final String? sampleAudioUrl;
-  String? lyrics; // <--- قابل تغییر برای بارگذاری جداگانه
+  String? lyrics;
 
   final bool isLocal;
   final bool isDownloaded;
   final int? mediaStoreId;
+  final DateTime? dateAdded; // زمان افزودن توسط کاربر (دانلود، علاقه‌مندی و ...)
+  final int? dateAddedMediaStore; // timestamp از on_audio_query (فقط برای آهنگ‌های محلی)
+
   final SongAccessTier requiredAccessTier;
 
   Song({
@@ -36,8 +39,19 @@ class Song {
     this.isLocal = false,
     this.isDownloaded = false,
     this.mediaStoreId,
+    this.dateAdded,
+    this.dateAddedMediaStore,
     this.requiredAccessTier = SongAccessTier.free,
   });
+
+  DateTime? get effectiveDateAdded {
+    if (dateAdded != null) return dateAdded; // اولویت با تاریخی که ما ست کردیم
+    if (dateAddedMediaStore != null && dateAddedMediaStore! > 0) {
+      // on_audio_query.SongModel.dateAdded معمولا به ثانیه است
+      return DateTime.fromMillisecondsSinceEpoch(dateAddedMediaStore! * 1000);
+    }
+    return null; // اگر هیچ تاریخی موجود نباشد
+  }
 
   String get uniqueIdentifier {
     if (isLocal && mediaStoreId != null && mediaStoreId! > 0) {
@@ -58,9 +72,10 @@ class Song {
 
   factory Song.fromDataString(String dataString) {
     final parts = dataString.split(';;');
-    if (parts.length < 9) {
-      print("Song.fromDataString: Invalid data string format: $dataString. Expected 9 parts, got ${parts.length}");
-      throw FormatException("Invalid song data string format (lyrics excluded)");
+    // title;artist;audioUrl;coverPath;isLocal;mediaStoreId;isDownloaded;accessTier;price;dateAdded(ISO)
+    if (parts.length < 10) { // قبلا ۹ بود، حالا باید ۱۰ باشد
+      print("Song.fromDataString: Invalid data string format for song. Expected 10 parts, got ${parts.length}. Data: $dataString");
+      throw FormatException("Invalid song data string format (missing dateAdded field?)");
     }
     try {
       return Song(
@@ -76,18 +91,22 @@ class Song {
           orElse: () => SongAccessTier.free,
         ),
         price: double.tryParse(parts[8]) ?? 0.0,
-        lyrics: null,
+        dateAdded: parts[9] != 'null' && parts[9].isNotEmpty ? DateTime.tryParse(parts[9]) : null,
+        // dateAddedMediaStore از SharedPreferences خوانده نمی‌شود، فقط موقع ساخت از on_audio_query پر می‌شود
+        lyrics: null, // Lyrics جداگانه بارگذاری می‌شوند
       );
     } catch (e) {
       print("Song.fromDataString: Error parsing song data: $e, Data: $dataString");
-      throw FormatException("Error parsing song data string (lyrics excluded): $e");
+      throw FormatException("Error parsing song data string: $e");
     }
   }
 
   String toDataString() {
-    final String localMediaStoreId = mediaStoreId?.toString() ?? 'null';
-    final String localCoverPath = coverImagePath ?? '';
-    return '$title;;$artist;;$audioUrl;;$localCoverPath;;$isLocal;;$localMediaStoreId;;$isDownloaded;;${requiredAccessTier.name};;$price';
+    final String localMediaStoreIdString = mediaStoreId?.toString() ?? 'null';
+    final String localCoverPathString = coverImagePath ?? '';
+    final String dateAddedString = dateAdded?.toIso8601String() ?? 'null'; // ذخیره به فرمت ISO 8601
+    // dateAddedMediaStore در toDataString ذخیره نمی‌شود چون فقط برای آهنگ‌های محلی اسکن شده کاربرد دارد
+    return '$title;;$artist;;$audioUrl;;$localCoverPathString;;$isLocal;;$localMediaStoreIdString;;$isDownloaded;;${requiredAccessTier.name};;$price;;$dateAddedString';
   }
 
   Song copyWith({
@@ -98,10 +117,12 @@ class Song {
     double? price,
     double? averageRating,
     String? sampleAudioUrl,
-    String? lyrics,
+    String? lyrics, // allow lyrics to be copied
     bool? isLocal,
     bool? isDownloaded,
     int? mediaStoreId,
+    DateTime? dateAdded, // new
+    int? dateAddedMediaStore, // new
     SongAccessTier? requiredAccessTier,
   }) {
     return Song(
@@ -116,6 +137,8 @@ class Song {
       isLocal: isLocal ?? this.isLocal,
       isDownloaded: isDownloaded ?? this.isDownloaded,
       mediaStoreId: mediaStoreId ?? this.mediaStoreId,
+      dateAdded: dateAdded ?? this.dateAdded,
+      dateAddedMediaStore: dateAddedMediaStore ?? this.dateAddedMediaStore,
       requiredAccessTier: requiredAccessTier ?? this.requiredAccessTier,
     );
   }
@@ -123,12 +146,11 @@ class Song {
   Future<void> saveLyrics(SharedPreferences prefs, String lyricsText) async {
     await prefs.setString(SharedPrefKeys.lyricsDataKeyForSong(uniqueIdentifier), lyricsText);
     this.lyrics = lyricsText;
-    print("Lyrics saved for ${this.title} with key ${SharedPrefKeys.lyricsDataKeyForSong(uniqueIdentifier)}");
+    // print("Lyrics saved for ${this.title}");
   }
 
   Future<void> loadLyrics(SharedPreferences prefs) async {
     this.lyrics = prefs.getString(SharedPrefKeys.lyricsDataKeyForSong(uniqueIdentifier));
-    // استفاده صحیح از تابع min از dart:math
-    print("Lyrics loaded for ${this.title}: ${this.lyrics != null && this.lyrics!.isNotEmpty ? 'Found (${this.lyrics!.substring(0, min(15, this.lyrics!.length))}...)' : 'Not Found'} from key ${SharedPrefKeys.lyricsDataKeyForSong(uniqueIdentifier)}");
+    // print("Lyrics loaded for ${this.title}: ${this.lyrics != null && this.lyrics!.isNotEmpty ? 'Found' : 'Not Found'}");
   }
 }
