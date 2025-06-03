@@ -1,0 +1,51 @@
+name: music_player
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0' # یا نسخه دقیق Dart SDK شما با ^
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  image_picker: ^1.0.7 # یا آخرین نسخه
+  device_info_plus: ^9.0.0
+  on_audio_query: ^2.9.0
+  cupertino_icons: ^1.0.8
+  font_awesome_flutter: ^10.7.0
+  just_audio: ^0.9.36
+  shared_preferences: ^2.2.3
+  path_provider: ^2.1.3     # <--- اضافه شد   # <--- اضافه شد (نسخه رو از pub.dev چک کنید)
+  permission_handler: ^11.3.1 # <--- اضافه شد (نسخه رو از pub.dev چک کنید)
+  # provider: ^6.1.2          # <--- (اختیاری) برای State Management - نسخه رو چک کنید
+  # flutter_inappwebview: ^6.0.0 # <--- (اختیاری) برای InAppWebView - نسخه رو چک کنید
+
+
+# ... بقیه فایل ...
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0 # یا آخرین نسخه پایداری که از pub.dev پیدا کردید
+  flutter_launcher_icons: ^0.13.1 # یا آخرین ورژن پایدار
+
+flutter_launcher_icons:
+  android: true # ساخت آیکون برای اندروید
+  ios: true     # ساخت آیکون برای iOS
+  image_path: "assets/icon/app_icon.png" # مسیر تصویر آیکون اصلی شما
+
+# ... بقیه فایل ...
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/covers/
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
