@@ -4,7 +4,8 @@ import 'package:on_audio_query/on_audio_query.dart'; // برای QueryArtworkWid
 import 'package:shared_preferences/shared_preferences.dart';
 import 'song_model.dart';
 import 'song_detail_screen.dart';
-import 'shared_pref_keys.dart'; // <--- اضافه شد
+import 'shared_pref_keys.dart';
+import 'main_tabs_screen.dart'; // برای دسترسی به _showSortOptionsDialog اگر لازم باشد
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
@@ -17,6 +18,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   List<Song> _favoriteSongs = [];
   bool _isLoading = true;
   SharedPreferences? _prefs;
+  String _currentSortCriteria = 'date_desc'; // پیش‌فرض: جدیدترین علاقه‌مندی‌ها اول
 
   @override
   void initState() {
@@ -28,14 +30,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Future<void> _initPrefsAndLoadFavorites() async {
     _prefs = await SharedPreferences.getInstance();
     if (mounted) {
-      await _loadFavoriteSongs();
+      await _loadFavoriteSongs(); // این تابع سورت اولیه را هم انجام می‌دهد
     }
   }
 
   Future<void> _loadFavoriteSongs() async {
     if (!mounted || _prefs == null) {
       if (_prefs == null) print("FavoritesScreen: SharedPreferences not initialized in _loadFavoriteSongs.");
-      if (mounted) setState(() => _isLoading = false); // اگر prefs نیست، نمی‌توانیم لود کنیم
+      if (mounted) setState(() => _isLoading = false);
       return;
     }
     setState(() => _isLoading = true);
@@ -47,15 +49,17 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       for (String dataString in favoriteDataStrings) {
         try {
           final song = Song.fromDataString(dataString);
-          await song.loadLyrics(_prefs!); // بارگذاری جداگانه lyrics
+          // dateAdded باید از fromDataString خوانده شده باشد
+          await song.loadLyrics(_prefs!);
           loadedSongs.add(song);
         } catch (e) {
           print("FavoritesScreen: Error parsing or loading lyrics for favorite song data: $dataString, Error: $e");
         }
       }
       if (mounted) {
+        _favoriteSongs = loadedSongs;
+        _sortFavoriteSongsInternal(); // مرتب‌سازی اولیه بر اساس _currentSortCriteria
         setState(() {
-          _favoriteSongs = loadedSongs;
           _isLoading = false;
         });
       }
@@ -71,6 +75,58 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     }
   }
 
+  void _sortFavoriteSongsInternal() {
+    if (_favoriteSongs.isEmpty) return;
+    // این متد _favoriteSongs را مستقیما مرتب می‌کند
+    _favoriteSongs.sort((a, b) {
+      int comparisonResult;
+      switch (_currentSortCriteria) {
+        case 'title_asc':
+          comparisonResult = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          break;
+        case 'title_desc':
+          comparisonResult = b.title.toLowerCase().compareTo(a.title.toLowerCase());
+          break;
+        case 'artist_asc':
+          comparisonResult = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+          break;
+        case 'artist_desc':
+          comparisonResult = b.artist.toLowerCase().compareTo(a.artist.toLowerCase());
+          break;
+        case 'date_desc': // جدیدترین اول (بر اساس زمان افزودن به علاقه‌مندی‌ها)
+          final dateA = a.dateAdded; // در اینجا از dateAdded استفاده می‌کنیم نه effectiveDateAdded
+          final dateB = b.dateAdded;
+          if (dateA == null && dateB == null) comparisonResult = 0;
+          else if (dateA == null) comparisonResult = 1; // null ها آخر
+          else if (dateB == null) comparisonResult = -1;
+          else comparisonResult = dateB.compareTo(dateA);
+          break;
+        case 'date_asc': // قدیمی‌ترین اول
+          final dateA = a.dateAdded;
+          final dateB = b.dateAdded;
+          if (dateA == null && dateB == null) comparisonResult = 0;
+          else if (dateA == null) comparisonResult = 1;
+          else if (dateB == null) comparisonResult = -1;
+          else comparisonResult = dateA.compareTo(dateB);
+          break;
+        default:
+          comparisonResult = 0; // یا سورت پیش‌فرض دیگر
+      }
+      return comparisonResult;
+    });
+  }
+
+  // متد برای فراخوانی از بیرون یا از دیالوگ سورت
+  void sortFavorites(String criteria) {
+    if (!mounted || _isLoading) return;
+    // if (_currentSortCriteria == criteria && _favoriteSongs.isNotEmpty) return; // اگر معیار یکی است، سورت نکن
+    setState(() {
+      _currentSortCriteria = criteria;
+      _sortFavoriteSongsInternal(); // لیست را با معیار جدید مرتب کن
+    });
+  }
+
+
   Future<void> _removeFromFavorites(Song songToRemove) async {
     if (_prefs == null) return;
 
@@ -79,9 +135,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
     final String songIdentifierToRemove = songToRemove.uniqueIdentifier;
 
-    // حذف از لیست شناسه‌ها
     bool removedFromIdentifiers = favoriteIdentifiers.remove(songIdentifierToRemove);
-    // حذف از لیست داده‌های کامل
     int initialDataLength = favoriteDataStrings.length;
     favoriteDataStrings.removeWhere((dataString) {
       try {
@@ -91,17 +145,15 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     });
     bool removedFromData = favoriteDataStrings.length < initialDataLength;
 
-    if (removedFromIdentifiers || removedFromData) { // اگر حداقل از یکی حذف شده باشد
+    if (removedFromIdentifiers || removedFromData) {
       await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataList, favoriteDataStrings);
       await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiers, favoriteIdentifiers);
-
-      // حذف متن آهنگ ذخیره شده برای این آهنگ (اختیاری، اما برای تمیزی خوب است)
       await _prefs!.remove(SharedPrefKeys.lyricsDataKeyForSong(songIdentifierToRemove));
 
       if (mounted) {
-        // به جای بارگذاری مجدد کل لیست، فقط آیتم را از لیست محلی حذف می‌کنیم
         setState(() {
           _favoriteSongs.removeWhere((song) => song.uniqueIdentifier == songIdentifierToRemove);
+          // نیازی به سورت مجدد نیست چون فقط یک آیتم حذف شده و ترتیب بقیه حفظ می‌شود
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('"${songToRemove.title}" removed from favorites.')),
@@ -113,29 +165,50 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   void _navigateToSongDetail(BuildContext context, Song song, int index) async {
-    // اطمینان از اینکه lyrics برای آهنگ انتخاب شده بارگذاری شده است
-    // (اگرچه در _loadFavoriteSongs باید انجام شده باشد، اما برای اطمینان)
-    if (_prefs == null) _prefs = await SharedPreferences.getInstance();
+    _prefs ??= await SharedPreferences.getInstance();
     await song.loadLyrics(_prefs!);
 
-    Navigator.push(
+    final result = await Navigator.push( // نتیجه بازگشتی را می‌گیریم (اگر از صفحه جزئیات چیزی بازگردانده شود)
       context,
       MaterialPageRoute(
         builder: (context) => SongDetailScreen(
           initialSong: song,
-          songList: _favoriteSongs, // ارسال لیست فعلی علاقه‌مندی‌ها به عنوان پلی‌لیست
+          songList: _favoriteSongs, // لیست علاقه‌مندی‌ها به عنوان پلی‌لیست
           initialIndex: index,
         ),
       ),
-    ).then((_) {
-      // پس از بازگشت از SongDetailScreen، ممکن است وضعیت علاقه‌مندی‌ها تغییر کرده باشد
-      // (مثلاً آهنگی از خود SongDetailScreen به علاقه‌مندی‌ها اضافه یا حذف شده باشد)
-      // بنابراین لیست را دوباره بارگذاری می‌کنیم.
-      if (mounted) {
-        _loadFavoriteSongs();
-      }
-    });
+    );
+    // پس از بازگشت از SongDetailScreen، ممکن است وضعیت علاقه‌مندی‌ها تغییر کرده باشد
+    // (مثلاً آهنگی از خود SongDetailScreen به علاقه‌مندی‌ها اضافه یا حذف شده باشد)
+    // بنابراین لیست را دوباره بارگذاری و مرتب می‌کنیم.
+    if (mounted) {
+      await _loadFavoriteSongs(); // این تابع شامل سورت هم می‌شود
+    }
   }
+
+  // متد برای نمایش دیالوگ سورت (مشابه MainTabsScreen)
+  Future<void> _showSortDialogForFavorites() async {
+    final String? selectedCriteria = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return SimpleDialog(
+          title: const Text('Sort Favorites by'),
+          children: <Widget>[
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'date_desc'), child: const Text('Date Added (Newest First)')),
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'date_asc'), child: const Text('Date Added (Oldest First)')),
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'title_asc'), child: const Text('Title (A-Z)')),
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'title_desc'), child: const Text('Title (Z-A)')),
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'artist_asc'), child: const Text('Artist (A-Z)')),
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, 'artist_desc'), child: const Text('Artist (Z-A)')),
+          ],
+        );
+      },
+    );
+    if (selectedCriteria != null && mounted) {
+      sortFavorites(selectedCriteria);
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -147,6 +220,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorite Songs'),
+        actions: [
+          if (!_isLoading && _favoriteSongs.isNotEmpty) // دکمه سورت فقط وقتی آهنگ وجود دارد
+            IconButton(
+              icon: const Icon(Icons.sort),
+              tooltip: "Sort Favorites",
+              onPressed: _showSortDialogForFavorites,
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -181,7 +262,6 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           final song = _favoriteSongs[index];
           Widget leadingWidget;
 
-          // منطق نمایش کاور مشابه سایر لیست‌ها
           if (song.isLocal && song.mediaStoreId != null && song.mediaStoreId! > 0) {
             leadingWidget = SizedBox(
               width: 50, height: 50,
@@ -191,7 +271,6 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                 artworkFit: BoxFit.cover,
                 artworkBorder: BorderRadius.circular(4.0),
                 artworkClipBehavior: Clip.antiAlias,
-                // NO padding for on_audio_query ^2.9.0
                 nullArtworkWidget: Container(
                     width: 50, height: 50,
                     decoration: BoxDecoration(
@@ -199,6 +278,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                         borderRadius: BorderRadius.circular(4.0)),
                     child: Icon(Icons.music_note_rounded,
                         color: colorScheme.onSurfaceVariant.withOpacity(0.6), size: 30)),
+                errorBuilder: (_, __, ___) => Container(
+                  width: 50, height: 50,
+                  decoration: BoxDecoration(color: (colorScheme.errorContainer ?? Colors.red).withOpacity(0.3), borderRadius: BorderRadius.circular(4.0)),
+                  child: Icon(Icons.broken_image_outlined, color: colorScheme.onErrorContainer?.withOpacity(0.6) ?? Colors.redAccent, size: 30),
+                ),
               ),
             );
           } else if (song.coverImagePath != null && song.coverImagePath!.isNotEmpty) {
