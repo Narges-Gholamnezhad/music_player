@@ -10,7 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  # ... سایر پکیج‌های شما ...
+  dio: ^5.4.0 # یا آخرین نسخه پایدار
+  provider: ^6.1.1
   image_picker: ^1.0.7 # یا آخرین نسخه
   device_info_plus: ^9.0.0
   on_audio_query: ^2.9.0

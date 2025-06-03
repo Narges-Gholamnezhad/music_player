@@ -1,7 +1,10 @@
 // lib/login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'signup_screen.dart';
-import 'main_tabs_screen.dart'; // یا هر صفحه‌ای که بعد از لاگین موفق باید برود
+import 'main_tabs_screen.dart';
+import 'user_auth_provider.dart';
+import 'splash_screen.dart'; // برای ناوبری پس از لاگین موفق (بهتر است به SplashScreen برود)
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
-  bool _isLoading = false; // برای نمایش CircularProgressIndicator
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -34,7 +37,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (value == null || value.isEmpty) {
       return 'Please enter your username or email';
     }
-    // می‌توانید شرط‌های بیشتری برای فرمت ایمیل یا طول نام کاربری اضافه کنید
     return null;
   }
 
@@ -42,91 +44,89 @@ class _LoginScreenState extends State<LoginScreen> {
     if (value == null || value.isEmpty) {
       return 'Please enter your password';
     }
-    // می‌توانید شرط حداقل طول رمز عبور را اینجا هم اضافه کنید
-    // if (value.length < 8) {
-    //   return 'Password must be at least 8 characters';
-    // }
     return null;
   }
 
   Future<void> _login() async {
-    // ابتدا اعتبارسنجی فرم
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true); // نمایش لودینگ
-
-      // فرم معتبر است، اینجا باید اطلاعات به بک‌اند ارسال شود
-      String usernameOrEmail = _usernameController.text;
-      String password = _passwordController.text;
-
-      print('LoginScreen: Form is valid. Attempting to login...');
-      print('Username/Email: $usernameOrEmail');
-      // print('Password: $password'); // از چاپ رمز عبور در لاگ‌های نهایی خودداری کنید
-
-      // شبیه‌سازی تاخیر شبکه و ارتباط با بک‌اند
-      await Future.delayed(const Duration(seconds: 2));
-
-      // TODO: اینجا باید با بک‌اند ارتباط برقرار کنید و پاسخ را بررسی کنید.
-      // bool loginSuccess = await AuthService.login(usernameOrEmail, password); // مثال
-      bool loginSuccess = true; // برای تست، فرض می‌کنیم لاگین همیشه موفق است
-      // در پروژه واقعی، این مقدار باید از پاسخ سرور بیاید
-
-      if (mounted) { // بررسی اینکه ویجت هنوز در درخت ویجت‌ها وجود دارد
-        if (loginSuccess) {
-          // TODO: ذخیره اطلاعات کاربر یا توکن در SharedPreferences
-          // به عنوان مثال:
-          // SharedPreferences prefs = await SharedPreferences.getInstance();
-          // await prefs.setBool('isLoggedIn', true);
-          // await prefs.setString('userToken', 'your_auth_token_from_server');
-          // await prefs.setString('username', usernameOrEmail); // یا هر اطلاعات دیگری که نیاز دارید
-          print('LoginScreen: Login successful (simulated). Navigating to MainTabsScreen.');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Welcome back, $usernameOrEmail!')), // بازخورد به کاربر
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainTabsScreen()),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Login failed. Invalid username or password. Please try again.')),
-          );
-        }
-        setState(() => _isLoading = false); // پنهان کردن لودینگ
-      }
-    } else {
-      // اگر فرم معتبر نیست، پیام مناسب توسط validator ها نمایش داده می‌شود.
-      print('LoginScreen: Form is invalid.');
+    if (!_formKey.currentState!.validate()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please correct the errors in the form.')),
         );
       }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    String usernameOrEmail = _usernameController.text;
+    // String password = _passwordController.text; // برای ارسال به بک‌اند
+
+    print('LoginScreen: Form is valid. Attempting to login...');
+    print('Username/Email: $usernameOrEmail');
+
+    // شبیه‌سازی ارتباط با بک‌اند
+    await Future.delayed(const Duration(seconds: 1)); // کاهش تاخیر برای تست سریعتر
+
+    // TODO: اینجا باید با بک‌اند واقعی ارتباط برقرار کنید
+    bool loginSuccess = true; // فرض می‌کنیم لاگین همیشه موفق است
+    String simulatedToken = "simulated_token_for_${usernameOrEmail.hashCode}";
+    // برای شبیه‌سازی، نام کاربری را از بخش اول ایمیل یا خود نام کاربری می‌گیریم
+    String fetchedUsername = usernameOrEmail.contains('@') ? usernameOrEmail.split('@')[0] : usernameOrEmail;
+    String? fetchedEmail = usernameOrEmail.contains('@') ? usernameOrEmail : "$fetchedUsername@example.com"; // یک ایمیل نمونه اگر فقط نام کاربری وارد شده
+
+    if (mounted) {
+      if (loginSuccess) {
+        try {
+          await Provider.of<UserAuthProvider>(context, listen: false).login(
+            usernameOrEmail, // یا fetchedUsername از سرور
+            simulatedToken,
+            fetchedUsername: fetchedUsername, // نام کاربری که از سرور گرفته شده (یا شبیه‌سازی شده)
+            fetchedEmail: fetchedEmail,     // ایمیلی که از سرور گرفته شده (یا شبیه‌سازی شده)
+          );
+
+          print('LoginScreen: Login successful. Navigating...');
+          if (mounted) { // بررسی مجدد mounted بودن
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (context) => const SplashScreen()), // SplashScreen خودش به صفحه درست هدایت می‌کند
+                  (route) => false,
+            );
+            // پیام خوش‌آمدگویی بهتر است در MainTabsScreen یا HomeScreen نمایش داده شود
+            // پس از اینکه اطلاعات کاربر از Provider خوانده شد.
+          }
+        } catch (e) {
+          print('LoginScreen: Error during provider login: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('An error occurred during login: $e')),
+            );
+          }
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Login failed. Invalid username or password.')),
+        );
+      }
+      if (mounted) { // بررسی مجدد mounted بودن
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _handleForgotPassword() {
-    // TODO: در آینده این بخش می‌تواند به یک صفحه جدید ناوبری کند یا یک فرآیند بازیابی رمز را شروع کند.
-    // فعلا یک دیالوگ ساده نمایش می‌دهیم.
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Forgot Password'),
-          content: const Text('This feature is not yet implemented. It will allow password recovery in a future update.'),
+          content: const Text('This feature is not yet implemented.'),
           actions: <Widget>[
-            TextButton(
-              child: const Text('OK'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
+            TextButton(child: const Text('OK'), onPressed: () => Navigator.of(context).pop()),
           ],
         );
       },
     );
-    print('LoginScreen: Forgot password pressed.');
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Login'),
+        automaticallyImplyLeading: false, // برای اینکه دکمه بازگشت نمایش داده نشود اگر از AuthScreen آمده‌ایم
       ),
       body: SafeArea(
         child: Center(
@@ -149,29 +150,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Text(
-                    'Welcome back!',
-                    textAlign: TextAlign.center,
-                    style: textTheme.headlineSmall?.copyWith(
-                      color: colorScheme.onBackground,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text('Welcome back!', textAlign: TextAlign.center, style: textTheme.headlineSmall?.copyWith(color: colorScheme.onBackground, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(
-                    'Enter your login information below',
-                    textAlign: TextAlign.center,
-                    style: textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onBackground.withOpacity(0.7),
-                    ),
-                  ),
+                  Text('Enter your login information below', textAlign: TextAlign.center, style: textTheme.titleMedium?.copyWith(color: colorScheme.onBackground.withOpacity(0.7))),
                   const SizedBox(height: 40.0),
                   TextFormField(
                     controller: _usernameController,
-                    decoration: InputDecoration(
-                      labelText: 'Username or Email',
-                      prefixIcon: Icon(Icons.person_outline, color: iconColor, size: 20),
-                    ),
+                    decoration: InputDecoration(labelText: 'Username or Email', prefixIcon: Icon(Icons.person_outline, color: iconColor, size: 20)),
                     validator: _validateUsernameOrEmail,
                     autovalidateMode: AutovalidateMode.onUserInteraction,
                     keyboardType: TextInputType.emailAddress,
@@ -183,11 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Password',
                       prefixIcon: Icon(Icons.lock_outline, color: iconColor, size: 20),
                       suffixIcon: IconButton(
-                        icon: Icon(
-                          _isPasswordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                          color: iconColor,
-                          size: 20,
-                        ),
+                        icon: Icon(_isPasswordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: iconColor, size: 20),
                         onPressed: _togglePasswordVisibility,
                       ),
                     ),
@@ -196,13 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     autovalidateMode: AutovalidateMode.onUserInteraction,
                   ),
                   const SizedBox(height: 16.0),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: _handleForgotPassword, // استفاده از متد جدید
-                      child: const Text('Forgot password?'),
-                    ),
-                  ),
+                  Align(alignment: Alignment.centerRight, child: TextButton(onPressed: _handleForgotPassword, child: const Text('Forgot password?'))),
                   const SizedBox(height: 24.0),
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -215,22 +190,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text("Don't have an account? ",
-                          style: TextStyle(color: colorScheme.onBackground.withOpacity(0.7), fontSize: 14.0)),
+                      Text("Don't have an account? ", style: TextStyle(color: colorScheme.onBackground.withOpacity(0.7), fontSize: 14.0)),
                       GestureDetector(
                         onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const SignUpScreen()),
-                          );
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
                         },
-                        child: Text(
-                          'Sign Up',
-                          style: TextStyle(
-                              color: colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.0),
-                        ),
+                        child: Text('Sign Up', style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 14.0)),
                       ),
                     ],
                   ),

@@ -6,7 +6,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'song_model.dart';
-import 'main_tabs_screen.dart'; // برای دسترسی به globalAudioPlayer و nowPlayingNotifier
+import 'main_tabs_screen.dart';
+import 'shared_pref_keys.dart'; // <--- اضافه شد
 
 class _PositionData {
   final Duration position;
@@ -34,23 +35,27 @@ class SongDetailScreen extends StatefulWidget {
 class _SongDetailScreenState extends State<SongDetailScreen> {
   bool _isFavorite = false;
   late Song _displayedSong;
+  SharedPreferences? _prefs;
 
   StreamSubscription<PlayerState>? _playerStateSubscriptionLocal;
   StreamSubscription<LoopMode>? _loopModeSubscriptionLocal;
   StreamSubscription<bool>? _shuffleModeSubscriptionLocal;
   late VoidCallback _nowPlayingListenerCallback;
 
-  static const String favoriteSongsDataKeyPlayer = 'favorite_songs_data_list';
-
   Stream<_PositionData> get _positionDataStream =>
       Stream.periodic(const Duration(milliseconds: 200), (_) {
+        // اطمینان از اینکه به پلیر دسترسی داریم و duration null نیست
+        final currentDuration = globalAudioPlayer.duration;
         return _PositionData(
           globalAudioPlayer.position,
           globalAudioPlayer.bufferedPosition,
-          globalAudioPlayer.duration ?? Duration.zero,
+          currentDuration ?? Duration.zero,
         );
       }).distinct((prev, next) =>
-      prev.position == next.position && prev.duration == next.duration);
+      prev.position.inMilliseconds == next.position.inMilliseconds &&
+          prev.duration.inMilliseconds == next.duration.inMilliseconds &&
+          prev.bufferedPosition.inMilliseconds == next.bufferedPosition.inMilliseconds);
+
 
   @override
   void initState() {
@@ -58,32 +63,33 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     _displayedSong = widget.initialSong;
     print(
         "SongDetailScreen: initState for (initial widget) '${widget.initialSong.title}', "
+            "UID: ${widget.initialSong.uniqueIdentifier}, "
             "InitialIndex: ${widget.initialIndex}, "
-            "Playlist size: ${widget.songList.length}, "
-            "Passed song audioUrl: ${widget.initialSong.audioUrl}");
+            "Playlist size: ${widget.songList.length}");
+
+    _initPrefsAndLoadData();
 
     final currentGlobalNowPlaying = nowPlayingNotifier.value;
     final currentGlobalSong = currentGlobalNowPlaying?.song;
-
     bool shouldPlayNew = true;
 
     if (currentGlobalSong != null) {
-      if (currentGlobalSong.audioUrl == widget.initialSong.audioUrl) {
+      if (currentGlobalSong.uniqueIdentifier == widget.initialSong.uniqueIdentifier) {
         if (_arePlaylistsEffectivelyEqual(currentGlobalNowPlaying?.currentPlaylist, widget.songList) &&
             currentGlobalNowPlaying?.currentIndexInPlaylist == widget.initialIndex) {
           print("SongDetailScreen initState: Same song and context already playing/loaded globally.");
           shouldPlayNew = false;
           _displayedSong = currentGlobalSong;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && globalAudioPlayer.playing != (nowPlayingNotifier.value?.isPlaying ?? false)) {
-              setState(() {});
+            if (mounted) {
+              _syncPlayingStateWithNotifier();
             }
           });
         } else {
-          print("SongDetailScreen initState: Same song URL but different playlist context. Will replay with new context (autoPlay true).");
+          print("SongDetailScreen initState: Same song uniqueIdentifier but different playlist context. Will replay with new context (autoPlay true).");
         }
       } else {
-        print("SongDetailScreen initState: Different song URL globally. Will play new song (autoPlay true).");
+        print("SongDetailScreen initState: Different song uniqueIdentifier globally. Will play new song (autoPlay true).");
       }
     } else {
       print("SongDetailScreen initState: No song playing globally. Will play new song (autoPlay true).");
@@ -94,17 +100,35 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       MainTabsScreen.playNewSongInGlobalPlayer(
           widget.initialSong, widget.songList, widget.initialIndex, autoPlay: true);
     }
-
-    _checkIfFavoriteForSong(_displayedSong);
     _setupLocalListeners();
   }
+
+  Future<void> _initPrefsAndLoadData() async {
+    _prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      // _displayedSong باید قبل از فراخوانی _loadFavoriteStatusAndLyrics بروز باشد.
+      // مقدار اولیه آن widget.initialSong است، یا اگر shouldPlayNew false باشد، به currentGlobalSong آپدیت می‌شود.
+      await _loadFavoriteStatusAndLyrics(_displayedSong);
+    }
+  }
+
+  void _syncPlayingStateWithNotifier() {
+    final notifierIsPlaying = nowPlayingNotifier.value?.isPlaying ?? false;
+    if (globalAudioPlayer.playing != notifierIsPlaying && mounted) {
+      setState(() {
+        // این setState فقط برای بازрисов ویجت‌هایی است که به playing state خود پلیر گوش می‌دهند
+        // (مثلا آیکون play/pause). nowPlayingNotifier قبلا آپدیت شده است.
+      });
+    }
+  }
+
 
   bool _arePlaylistsEffectivelyEqual(List<Song>? p1, List<Song>? p2) {
     if (p1 == null && p2 == null) return true;
     if (p1 == null || p2 == null) return false;
     if (p1.length != p2.length) return false;
     for (int i = 0; i < p1.length; i++) {
-      if (p1[i].audioUrl != p2[i].audioUrl) return false;
+      if (p1[i].uniqueIdentifier != p2[i].uniqueIdentifier) return false;
     }
     return true;
   }
@@ -114,7 +138,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     nowPlayingNotifier.addListener(_nowPlayingListenerCallback);
 
     _playerStateSubscriptionLocal = globalAudioPlayer.playerStateStream.listen((state) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        // فقط برای بازрисов UI این صفحه بر اساس وضعیت پلیر
+        setState(() {});
+      }
     });
     _loopModeSubscriptionLocal = globalAudioPlayer.loopModeStream.listen((_) {
       if (mounted) setState(() {});
@@ -128,78 +155,86 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final newNowPlaying = nowPlayingNotifier.value;
     if (mounted) {
       if (newNowPlaying != null) {
-        bool songChanged = _displayedSong.audioUrl != newNowPlaying.song.audioUrl;
-        // حتی اگر آهنگ یکی باشد، isPlaying یا لیست پخش ممکن است تغییر کرده باشد
-        setState(() {
-          _displayedSong = newNowPlaying.song;
-        });
+        bool songChanged = _displayedSong.uniqueIdentifier != newNowPlaying.song.uniqueIdentifier;
         if (songChanged) {
-          _checkIfFavoriteForSong(newNowPlaying.song);
+          setState(() { // آپدیت _displayedSong برای نمایش
+            _displayedSong = newNowPlaying.song;
+          });
+          _loadFavoriteStatusAndLyrics(newNowPlaying.song); // بارگذاری برای آهنگ جدید
+        } else {
+          // حتی اگر آهنگ یکی است، ممکن است isPlaying در notifier تغییر کرده باشد
+          // یا لیست پخش آپدیت شده باشد. فقط UI را رفرش می‌کنیم.
+          setState(() {});
         }
       } else {
-        print("SongDetailScreen: nowPlayingNotifier is null. Updating UI to reflect no song.");
-        // اگر _displayedSong هنوز مقدار دارد، UI با آن رندر می‌شود اما کنترل‌ها غیرفعال می‌شوند
-        // یا می‌توانید _displayedSong را به یک آهنگ پیش‌فرض یا null تغییر دهید
-        // Navigator.of(context).pop(); // یا صفحه را ببندید
-        setState(() {});
+        print("SongDetailScreen: nowPlayingNotifier is null. Updating UI.");
+        // اگر _displayedSong هنوز آهنگ قبلی را دارد، UI با آن رندر می‌شود.
+        // کنترل‌ها ممکن است بر اساس null بودن audioSource در پلیر غیرفعال شوند.
+        setState(() {}); // برای اطمینان از بازрисов
       }
     }
   }
 
-  Future<void> _checkIfFavoriteForSong(Song songToCheck) async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> favoriteDataStrings = prefs.getStringList(favoriteSongsDataKeyPlayer) ?? [];
-    final String songIdentifier = "${songToCheck.title};;${songToCheck.artist}" + (songToCheck.isLocal ? ";;${songToCheck.audioUrl}" : "");
+  Future<void> _loadFavoriteStatusAndLyrics(Song songToCheck) async {
+    if (_prefs == null) {
+      print("SongDetailScreen: SharedPreferences not initialized in _loadFavoriteStatusAndLyrics. Awaiting init...");
+      _prefs = await SharedPreferences.getInstance();
+    }
+    // بارگذاری متن آهنگ
+    await songToCheck.loadLyrics(_prefs!);
 
-    bool found = favoriteDataStrings.any((dataString) {
-      try {
-        final favSong = Song.fromDataString(dataString);
-        final String favSongIdentifier = "${favSong.title};;${favSong.artist}" + (favSong.isLocal ? ";;${favSong.audioUrl}" : "");
-        return favSongIdentifier == songIdentifier;
-      } catch (e) { return false; }
-    });
-
-    if (mounted && _isFavorite != found) {
-      setState(() { _isFavorite = found; });
+    // بارگذاری وضعیت علاقه‌مندی
+    final List<String> favoriteIdsList = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
+    if (mounted) {
+      setState(() {
+        _isFavorite = favoriteIdsList.contains(songToCheck.uniqueIdentifier);
+      });
     }
   }
 
   Future<void> _toggleFavorite() async {
-    final songToFavorite = nowPlayingNotifier.value?.song ?? _displayedSong;
+    if (_prefs == null) _prefs = await SharedPreferences.getInstance();
+    final songToFavorite = nowPlayingNotifier.value?.song ?? _displayedSong; // اولویت با آهنگ فعلی در notifier
 
-    final prefs = await SharedPreferences.getInstance();
-    List<String> favoriteDataStrings = prefs.getStringList(favoriteSongsDataKeyPlayer) ?? [];
-    final String songDataForStorage = songToFavorite.toDataString();
-    final String songIdentifierToMatch = "${songToFavorite.title};;${songToFavorite.artist}" + (songToFavorite.isLocal ? ";;${songToFavorite.audioUrl}" : "");
+    List<String> currentFavoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
+    List<String> currentFavoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
 
-    int foundIndex = -1;
-    for(int i=0; i < favoriteDataStrings.length; i++) {
-      try {
-        final favSong = Song.fromDataString(favoriteDataStrings[i]);
-        final String currentFavSongIdentifier = "${favSong.title};;${favSong.artist}" + (favSong.isLocal ? ";;${favSong.audioUrl}" : "");
-        if (currentFavSongIdentifier == songIdentifierToMatch) {
-          foundIndex = i;
-          break;
-        }
-      } catch (e) { /* ignore */ }
+    final uniqueId = songToFavorite.uniqueIdentifier;
+    // وضعیت isFavorite باید از لیست خوانده شده از SharedPreferences باشد نه state محلی که ممکن است هنوز آپدیت نشده باشد
+    bool isCurrentlyPersistedAsFavorite = currentFavoriteIds.contains(uniqueId);
+
+    String message;
+
+    if (!isCurrentlyPersistedAsFavorite) { // اگر محبوب نیست و می‌خواهیم محبوب کنیم
+      currentFavoriteIds.add(uniqueId);
+      currentFavoriteDataStrings.add(songToFavorite.toDataString()); // داده آهنگ (بدون lyrics)
+      message = '"${songToFavorite.title}" added to favorites.';
+      if(mounted) setState(() => _isFavorite = true);
+    } else { // اگر محبوب است و می‌خواهیم از محبوبیت خارج کنیم
+      currentFavoriteIds.remove(uniqueId);
+      currentFavoriteDataStrings.removeWhere((dataStr) {
+        try {
+          final songFromData = Song.fromDataString(dataStr);
+          return songFromData.uniqueIdentifier == uniqueId;
+        } catch (e) { return false; }
+      });
+      message = '"${songToFavorite.title}" removed from favorites.';
+      if(mounted) setState(() => _isFavorite = false);
     }
+
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiers, currentFavoriteIds);
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataList, currentFavoriteDataStrings);
 
     if (mounted) {
-      setState(() {
-        _isFavorite = !_isFavorite;
-        if (_isFavorite) {
-          if (foundIndex == -1) favoriteDataStrings.add(songDataForStorage);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('"${songToFavorite.title}" added to favorites.')));
-        } else {
-          if (foundIndex != -1) favoriteDataStrings.removeAt(foundIndex);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('"${songToFavorite.title}" removed from favorites.')));
-        }
-      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
-    await prefs.setStringList(favoriteSongsDataKeyPlayer, favoriteDataStrings);
   }
 
   void _controlPlayPause() {
+    if (globalAudioPlayer.audioSource == null && nowPlayingNotifier.value == null) {
+      print("SongDetailScreen: Cannot play/pause, no audio source and no song in notifier.");
+      return;
+    }
     if (globalAudioPlayer.playing) {
       globalAudioPlayer.pause();
     } else {
@@ -208,6 +243,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       }
       globalAudioPlayer.play();
     }
+    // Listener وضعیت isPlaying در nowPlayingNotifier را آپدیت می‌کند و setState در شنونده‌های محلی UI را رفرش می‌کند.
   }
 
   void _controlPlayNext() {
@@ -233,9 +269,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           nextIndex = 0;
         } else {
           if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Last song in playlist.")));
-          if (nowPlayingNotifier.value != null && nowPlayingNotifier.value!.isPlaying) {
-            nowPlayingNotifier.value = nowPlayingNotifier.value!.copyWith(isPlaying: false);
+          // اگر به انتهای لیست رسید و لوپ نیست، پلیر را متوقف کن
+          if (globalAudioPlayer.playing) {
             globalAudioPlayer.pause();
+            // nowPlayingNotifier توسط listener آپدیت می‌شود
           }
           return;
         }
@@ -248,6 +285,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final currentModel = nowPlayingNotifier.value;
     if (currentModel == null || currentModel.currentPlaylist.isEmpty) return;
 
+    // اگر آهنگ بیش از 3 ثانیه پخش شده، به ابتدای همان آهنگ برگرد
     if (globalAudioPlayer.position > const Duration(seconds: 3)) {
       globalAudioPlayer.seek(Duration.zero);
       if (!globalAudioPlayer.playing && (nowPlayingNotifier.value?.isPlaying ?? false)) {
@@ -261,8 +299,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     int prevIndex;
 
     if (globalAudioPlayer.shuffleModeEnabled && playlist.length > 1) {
+      // در حالت شافل، آهنگ قبلی معنی خاصی ندارد، می‌توان یکی دیگر را تصادفی انتخاب کرد یا به اولی رفت
+      // برای سادگی، یک آهنگ دیگر تصادفی (غیر از فعلی) انتخاب می‌کنیم
       var availableIndices = List<int>.generate(playlist.length, (i) => i)..remove(currentIndex);
-      if (availableIndices.isEmpty) {
+      if (availableIndices.isEmpty) { // این نباید اتفاق بیفتد اگر بیش از یک آهنگ هست
         if (playlist.isNotEmpty) MainTabsScreen.playNewSongInGlobalPlayer(playlist[currentIndex], playlist, currentIndex, autoPlay: true);
         return;
       }
@@ -272,10 +312,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       prevIndex = currentIndex - 1;
       if (prevIndex < 0) {
         if (globalAudioPlayer.loopMode == LoopMode.all && playlist.isNotEmpty) {
-          prevIndex = playlist.length - 1;
+          prevIndex = playlist.length - 1; // برو به آخرین آهنگ
         } else {
           if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("First song in playlist.")));
-          return;
+          return; // کاری نکن
         }
       }
     }
@@ -283,17 +323,22 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   void _controlToggleLoopMode() async {
+    if (globalAudioPlayer.audioSource == null && nowPlayingNotifier.value == null) return;
     LoopMode currentLoopMode = globalAudioPlayer.loopMode;
     LoopMode nextLoopMode;
     if (currentLoopMode == LoopMode.off) { nextLoopMode = LoopMode.all; }
     else if (currentLoopMode == LoopMode.all) { nextLoopMode = LoopMode.one; }
     else { nextLoopMode = LoopMode.off; }
     await globalAudioPlayer.setLoopMode(nextLoopMode);
+    // setState در listener مربوط به loopModeStream انجام می‌شود
   }
 
   void _controlToggleShuffleMode() async {
-    final newShuffleState = !await globalAudioPlayer.shuffleModeEnabled;
-    await globalAudioPlayer.setShuffleModeEnabled(newShuffleState);
+    if (globalAudioPlayer.audioSource == null && nowPlayingNotifier.value == null) return;
+    // وضعیت فعلی را از خود پلیر بخوان
+    final currentShuffleState = globalAudioPlayer.shuffleModeEnabled;
+    await globalAudioPlayer.setShuffleModeEnabled(!currentShuffleState);
+    // setState در listener مربوط به shuffleModeEnabledStream انجام می‌شود
   }
 
   @override
@@ -325,7 +370,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
 
-    final songForDisplay = nowPlayingNotifier.value?.song ?? _displayedSong; // همیشه از _displayedSong استفاده کن اگر notifier null است
+    // همیشه از _displayedSong استفاده کن که توسط listener ها آپدیت می‌شود.
+    // اگر nowPlayingNotifier.value نال باشد، _displayedSong آخرین آهنگ معتبر را نگه می‌دارد.
+    final songForDisplay = _displayedSong;
+    // وضعیت پخش را مستقیما از پلیر یا notifier بخوان
     final bool isCurrentlyPlaying = nowPlayingNotifier.value?.isPlaying ?? globalAudioPlayer.playing;
 
 
@@ -345,6 +393,25 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       coverWidget = Container(
           width: double.infinity, height: screenHeight * 0.45, color: colorScheme.surfaceVariant.withOpacity(0.7), child: Icon(Icons.album_rounded, size: 120, color: colorScheme.onSurfaceVariant.withOpacity(0.5)));
     }
+
+    Widget lyricsWidget = const SizedBox.shrink();
+    if (songForDisplay.lyrics != null && songForDisplay.lyrics!.isNotEmpty) {
+      lyricsWidget = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Lyrics:", style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(songForDisplay.lyrics!, style: textTheme.bodyMedium?.copyWith(height: 1.5)), // اضافه کردن line height
+            const SizedBox(height: 20), // فاصله بعد از متن آهنگ
+          ],
+        ),
+      );
+    }
+
+    bool canControlPlayback = globalAudioPlayer.audioSource != null || nowPlayingNotifier.value != null;
+
 
     return Scaffold(
       appBar: AppBar(
@@ -371,7 +438,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                     duration: const Duration(milliseconds: 300),
                     transitionBuilder: (Widget child, Animation<double> animation) => FadeTransition(opacity: animation, child: child),
                     child: Column(
-                      key: ValueKey<String>("${songForDisplay.title}-${songForDisplay.artist}"),
+                      key: ValueKey<String>(songForDisplay.uniqueIdentifier),
                       children: [
                         Text(songForDisplay.title, textAlign: TextAlign.center, style: textTheme.headlineSmall?.copyWith(color: colorScheme.onBackground, fontWeight: FontWeight.bold) ?? const TextStyle(), maxLines: 2, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 8),
@@ -383,16 +450,17 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                   StreamBuilder<_PositionData>(
                     stream: _positionDataStream,
                     builder: (context, snapshot) {
-                      final positionData = snapshot.data ?? _PositionData(Duration.zero, Duration.zero, Duration.zero);
+                      final positionData = snapshot.data ?? _PositionData(Duration.zero, Duration.zero, globalAudioPlayer.duration ?? Duration.zero);
                       final position = positionData.position;
                       final duration = positionData.duration;
                       return Column(children: [
                         SliderTheme(
                           data: SliderTheme.of(context).copyWith(trackHeight: 3.5, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7.0, elevation: 1.0), overlayShape: const RoundSliderOverlayShape(overlayRadius: 18.0), activeTrackColor: colorScheme.primary, inactiveTrackColor: colorScheme.onSurface.withOpacity(0.25), thumbColor: colorScheme.primary, overlayColor: colorScheme.primary.withAlpha(0x3D)),
                           child: Slider(
-                            min: 0, max: duration.inSeconds.toDouble().isFinite && duration.inSeconds.toDouble() > 0 ? duration.inSeconds.toDouble() : 1.0,
+                            min: 0,
+                            max: duration.inSeconds.toDouble().isFinite && duration.inSeconds.toDouble() > 0 ? duration.inSeconds.toDouble() : 1.0,
                             value: position.inSeconds.toDouble().clamp(0.0, duration.inSeconds.toDouble().isFinite && duration.inSeconds.toDouble() > 0 ? duration.inSeconds.toDouble() : 1.0),
-                            onChanged: (value) { if (globalAudioPlayer.audioSource != null) globalAudioPlayer.seek(Duration(seconds: value.toInt())); }, // فقط اگر منبعی هست seek کن
+                            onChanged: canControlPlayback ? (value) { globalAudioPlayer.seek(Duration(seconds: value.toInt())); } : null,
                           ),
                         ),
                         Padding(padding: const EdgeInsets.symmetric(horizontal: 12.0), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(_formatDuration(position), style: textTheme.bodySmall?.copyWith(color: colorScheme.onBackground.withOpacity(0.7), letterSpacing: 0.5)), Text(_formatDuration(duration), style: textTheme.bodySmall?.copyWith(color: colorScheme.onBackground.withOpacity(0.7), letterSpacing: 0.5))]))
@@ -407,29 +475,29 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                           stream: globalAudioPlayer.shuffleModeEnabledStream,
                           builder: (context, snapshot) {
                             final isShuffleEnabled = snapshot.data ?? false;
-                            return IconButton(icon: Icon(Icons.shuffle_rounded, color: isShuffleEnabled ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.7), size: 26), tooltip: isShuffleEnabled ? "Shuffle On" : "Shuffle Off", onPressed: _controlToggleShuffleMode);
+                            return IconButton(icon: Icon(Icons.shuffle_rounded, color: isShuffleEnabled ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.7), size: 26), tooltip: isShuffleEnabled ? "Shuffle On" : "Shuffle Off", onPressed: canControlPlayback ? _controlToggleShuffleMode : null);
                           }),
                       IconButton(
-                        icon: Icon(Icons.skip_previous_rounded, color: (nowPlayingNotifier.value?.currentPlaylist.isNotEmpty ?? false) ? colorScheme.onSurface : colorScheme.onSurface.withOpacity(0.3), size: 40),
-                        onPressed: (nowPlayingNotifier.value?.currentPlaylist.isNotEmpty ?? false) ? _controlPlayPrevious : null,
+                        icon: Icon(Icons.skip_previous_rounded, color: canControlPlayback ? colorScheme.onSurface : colorScheme.onSurface.withOpacity(0.3), size: 40),
+                        onPressed: canControlPlayback ? _controlPlayPrevious : null,
                       ),
                       StreamBuilder<PlayerState>(
                         stream: globalAudioPlayer.playerStateStream,
                         builder: (context, snapshot) {
                           final playerState = snapshot.data;
                           final processingState = playerState?.processingState;
-                          final playing = isCurrentlyPlaying;
+                          // final playing = isCurrentlyPlaying; // از بیرون build تعریف شده
                           return Container(
                             decoration: BoxDecoration(color: colorScheme.primary, shape: BoxShape.circle, boxShadow: [BoxShadow(color: colorScheme.primary.withOpacity(0.4), blurRadius: 12, spreadRadius: 1, offset: const Offset(0, 2))]),
                             child: (processingState == ProcessingState.loading || processingState == ProcessingState.buffering)
                                 ? const SizedBox(width: 60, height: 60, child: Padding(padding: EdgeInsets.all(12.0), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)))
-                                : IconButton(icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: colorScheme.onPrimary, size: 50), padding: const EdgeInsets.all(10), onPressed: (globalAudioPlayer.audioSource == null && nowPlayingNotifier.value == null) ? null : _controlPlayPause),
+                                : IconButton(icon: Icon(isCurrentlyPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: colorScheme.onPrimary, size: 50), padding: const EdgeInsets.all(10), onPressed: canControlPlayback ? _controlPlayPause : null),
                           );
                         },
                       ),
                       IconButton(
-                        icon: Icon(Icons.skip_next_rounded, color: (nowPlayingNotifier.value?.currentPlaylist.isNotEmpty ?? false) ? colorScheme.onSurface : colorScheme.onSurface.withOpacity(0.3), size: 40),
-                        onPressed: (nowPlayingNotifier.value?.currentPlaylist.isNotEmpty ?? false) ? _controlPlayNext : null,
+                        icon: Icon(Icons.skip_next_rounded, color: canControlPlayback ? colorScheme.onSurface : colorScheme.onSurface.withOpacity(0.3), size: 40),
+                        onPressed: canControlPlayback ? _controlPlayNext : null,
                       ),
                       StreamBuilder<LoopMode>(
                         stream: globalAudioPlayer.loopModeStream,
@@ -439,12 +507,13 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                           if (loopMode == LoopMode.one) { loopIcon = Icons.repeat_one_on_rounded; tooltip = "Repeat One"; }
                           else if (loopMode == LoopMode.all) { loopIcon = Icons.repeat_on_rounded; tooltip = "Repeat All"; }
                           else { loopIcon = Icons.repeat_rounded; tooltip = "Repeat Off"; }
-                          return IconButton(icon: Icon(loopIcon, color: loopMode != LoopMode.off ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.7), size: 26), onPressed: _controlToggleLoopMode, tooltip: tooltip);
+                          return IconButton(icon: Icon(loopIcon, color: loopMode != LoopMode.off ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.7), size: 26), onPressed: canControlPlayback ? _controlToggleLoopMode : null, tooltip: tooltip);
                         },
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
+                  lyricsWidget, // نمایش متن آهنگ
                 ],
               ),
             ),
