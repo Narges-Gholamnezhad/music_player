@@ -8,8 +8,10 @@
     <!-- مجوز خواندن فایل‌های صوتی (برای اندروید 13 - API 33 و بالاتر) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <!-- برای اندروید 10 به بالا ممکن است نیاز به requestLegacyExternalStorage="true" در تگ application باشد -->
+
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- مجوز برای دسترسی به اینترنت (برای دانلود آهنگ از سرور، تبلیغات، و غیره) -->
     <uses-permission android:name="android.permission.INTERNET" />
