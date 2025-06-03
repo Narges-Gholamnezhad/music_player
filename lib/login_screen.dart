@@ -2,9 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'signup_screen.dart';
-import 'main_tabs_screen.dart';
+// import 'main_tabs_screen.dart'; // دیگر مستقیما به اینجا navigate نمی‌کنیم
 import 'user_auth_provider.dart';
-import 'splash_screen.dart'; // برای ناوبری پس از لاگین موفق (بهتر است به SplashScreen برود)
+// import 'splash_screen.dart'; // دیگر لازم نیست
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -66,33 +66,27 @@ class _LoginScreenState extends State<LoginScreen> {
     print('Username/Email: $usernameOrEmail');
 
     // شبیه‌سازی ارتباط با بک‌اند
-    await Future.delayed(const Duration(seconds: 1)); // کاهش تاخیر برای تست سریعتر
+    await Future.delayed(const Duration(seconds: 1));
 
-    // TODO: اینجا باید با بک‌اند واقعی ارتباط برقرار کنید
     bool loginSuccess = true; // فرض می‌کنیم لاگین همیشه موفق است
     String simulatedToken = "simulated_token_for_${usernameOrEmail.hashCode}";
-    // برای شبیه‌سازی، نام کاربری را از بخش اول ایمیل یا خود نام کاربری می‌گیریم
     String fetchedUsername = usernameOrEmail.contains('@') ? usernameOrEmail.split('@')[0] : usernameOrEmail;
-    String? fetchedEmail = usernameOrEmail.contains('@') ? usernameOrEmail : "$fetchedUsername@example.com"; // یک ایمیل نمونه اگر فقط نام کاربری وارد شده
+    String? fetchedEmail = usernameOrEmail.contains('@') ? usernameOrEmail : "$fetchedUsername@example.com";
 
     if (mounted) {
       if (loginSuccess) {
         try {
           await Provider.of<UserAuthProvider>(context, listen: false).login(
-            usernameOrEmail, // یا fetchedUsername از سرور
+            usernameOrEmail,
             simulatedToken,
-            fetchedUsername: fetchedUsername, // نام کاربری که از سرور گرفته شده (یا شبیه‌سازی شده)
-            fetchedEmail: fetchedEmail,     // ایمیلی که از سرور گرفته شده (یا شبیه‌سازی شده)
+            fetchedUsername: fetchedUsername,
+            fetchedEmail: fetchedEmail,
           );
 
-          print('LoginScreen: Login successful. Navigating...');
+          print('LoginScreen: Login successful. Navigating back...');
           if (mounted) { // بررسی مجدد mounted بودن
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (context) => const SplashScreen()), // SplashScreen خودش به صفحه درست هدایت می‌کند
-                  (route) => false,
-            );
-            // پیام خوش‌آمدگویی بهتر است در MainTabsScreen یا HomeScreen نمایش داده شود
-            // پس از اینکه اطلاعات کاربر از Provider خوانده شد.
+            Navigator.of(context).pop(); // <--- تغییر: فقط pop می‌کنیم
+            // UserProfileScreen (یا هر صفحه‌ای که این را push کرده) با تغییر Provider آپدیت می‌شود.
           }
         } catch (e) {
           print('LoginScreen: Error during provider login: $e');
@@ -103,9 +97,11 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login failed. Invalid username or password.')),
-        );
+        if (mounted) { // اطمینان از mounted بودن قبل از نمایش SnackBar
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Login failed. Invalid username or password.')),
+          );
+        }
       }
       if (mounted) { // بررسی مجدد mounted بودن
         setState(() => _isLoading = false);
@@ -138,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Login'),
-        automaticallyImplyLeading: false, // برای اینکه دکمه بازگشت نمایش داده نشود اگر از AuthScreen آمده‌ایم
+        // automaticallyImplyLeading: true, // حالا باید دکمه بازگشت نمایش داده شود
       ),
       body: SafeArea(
         child: Center(
@@ -193,7 +189,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text("Don't have an account? ", style: TextStyle(color: colorScheme.onBackground.withOpacity(0.7), fontSize: 14.0)),
                       GestureDetector(
                         onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
+                          // به جای pushReplacement، از push استفاده می‌کنیم تا کاربر بتواند به صفحه لاگین بازگردد
+                          // یا اگر می‌خواهیم SignUp جایگزین Login شود و از SignUp نتوان به Login بازگشت:
+                          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
                         },
                         child: Text('Sign Up', style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 14.0)),
                       ),

@@ -1,8 +1,10 @@
 // lib/signup_screen.dart
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:provider/provider.dart'; // <--- اضافه شد
 import 'login_screen.dart';
-import 'main_tabs_screen.dart';
+// import 'main_tabs_screen.dart'; // دیگر مستقیما به اینجا navigate نمی‌کنیم
+import 'user_auth_provider.dart'; // <--- اضافه شد
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -19,7 +21,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _confirmPasswordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
-  bool _isLoading = false; // برای نمایش CircularProgressIndicator هنگام ثبت نام
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -47,35 +49,47 @@ class _SignUpScreenState extends State<SignUpScreen> {
       setState(() => _isLoading = true);
       String username = _usernameController.text;
       String email = _emailController.text;
-      // String password = _passwordController.text; // از چاپ رمز عبور خودداری کنید
+      // String password = _passwordController.text;
 
       print('SignUpScreen: Form is valid. Attempting to sign up...');
       print('Username: $username, Email: $email');
 
-      // شبیه‌سازی تاخیر شبکه و ارتباط با بک‌اند برای ثبت نام
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 1)); // کاهش تاخیر برای تست سریعتر
 
-      // TODO: اینجا باید با بک‌اند ارتباط برقرار کنید، نام کاربری را برای تکراری نبودن بررسی کنید
-      // و در صورت موفقیت، کاربر را ثبت کنید.
       bool signupSuccess = true; // برای تست، فرض می‌کنیم ثبت نام همیشه موفق است
 
       if (mounted) {
         if (signupSuccess) {
-          // TODO: پس از ثبت نام موفق و دریافت پاسخ از سرور (مثلا توکن یا اطلاعات کاربر)
-          // می‌توانید آن‌ها را در SharedPreferences ذخیره کنید، مشابه آنچه در LoginScreen گفته شد.
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Signup successful! Welcome, $username!')),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainTabsScreen()),
-          );
+          try {
+            // TODO: توکن واقعی باید از بک‌اند دریافت شود
+            String simulatedToken = "simulated_token_signup_${username.hashCode}";
+            await Provider.of<UserAuthProvider>(context, listen: false)
+                .signUpAndLogin(username, email, simulatedToken);
+
+            if (mounted) { // بررسی مجدد mounted بودن
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Signup successful! Welcome, $username!')),
+              );
+              Navigator.of(context).pop(); // <--- تغییر: فقط pop می‌کنیم
+            }
+          } catch (e) {
+            print('SignUpScreen: Error during provider signUpAndLogin: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('An error occurred during sign up: $e')),
+              );
+            }
+          }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Signup failed. Username or email might be taken, or server error.')),
-          );
+          if (mounted) { // اطمینان از mounted بودن
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Signup failed. Username or email might be taken, or server error.')),
+            );
+          }
         }
-        setState(() => _isLoading = false);
+        if (mounted) { // بررسی مجدد mounted بودن
+          setState(() => _isLoading = false);
+        }
       }
     } else {
       print('SignUpScreen: Form is invalid.');
@@ -103,9 +117,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (!RegExp(r'(?=.*\d)').hasMatch(value)) {
       return 'Password must contain at least one digit';
     }
-    // PDF: "و نباید دقیقا شامل نام کاربری باشد"
-    // این بررسی در فرانت‌اند کمی پیچیده‌تر است چون نیاز به دسترسی به مقدار فیلد نام کاربری دارد.
-    // یک راه حل، بررسی این مورد در متد _signUp قبل از ارسال به سرور است.
+    // اگر می‌خواهید ولیدیتور نام کاربری در پسورد را فعال کنید:
     // if (_usernameController.text.isNotEmpty && value.toLowerCase().contains(_usernameController.text.toLowerCase())) {
     //   return 'Password should not contain your username';
     // }
@@ -113,11 +125,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   void _signUpWithGoogle() {
-    // TODO: پیاده‌سازی واقعی ثبت نام با گوگل
     print('SignUpScreen: Sign Up with Google pressed (TODO)');
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sign up with Google is not yet implemented.')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign up with Google is not yet implemented.')),
+      );
+    }
   }
 
   @override
@@ -140,7 +153,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
             const EdgeInsets.symmetric(horizontal: 32.0, vertical: 20.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction, // برای نمایش خطاها به محض تایپ
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -214,7 +227,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         onPressed: _togglePasswordVisibility,
                       ),
                     ),
-                    validator: _validatePassword, // استفاده از ولیدیتور جدید
+                    validator: _validatePassword,
                   ),
                   const SizedBox(height: 20.0),
                   TextFormField(
@@ -293,7 +306,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         borderRadius: BorderRadius.circular(12.0),
                       ),
                     ),
-                    onPressed: _signUpWithGoogle, // استفاده از متد جدید
+                    onPressed: _signUpWithGoogle,
                   ),
                   const SizedBox(height: 30.0),
                   Row(
@@ -304,9 +317,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               color: secondaryTextColor, fontSize: 14.0)),
                       GestureDetector(
                         onTap: () {
+                          // اگر از صفحه لاگین به اینجا آمده‌ایم، pop می‌کنیم
+                          // اگر مستقیما از UserProfileScreen به SignUp آمده‌ایم، باز هم pop می‌کنیم
                           if (Navigator.canPop(context)) {
                             Navigator.pop(context);
                           } else {
+                            // این حالت نباید زیاد پیش بیاید در سناریوی جدید
                             Navigator.pushReplacement(
                               context,
                               MaterialPageRoute(
