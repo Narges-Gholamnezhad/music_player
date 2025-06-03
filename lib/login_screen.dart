@@ -73,16 +73,22 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) { // بررسی اینکه ویجت هنوز در درخت ویجت‌ها وجود دارد
         if (loginSuccess) {
           // TODO: ذخیره اطلاعات کاربر یا توکن در SharedPreferences
-          // await PrefsService.setUserLoggedIn(true);
-          // await PrefsService.saveUserToken("some_auth_token");
-
-          Navigator.pushReplacement( // استفاده از pushReplacement تا کاربر نتواند به صفحه لاگین برگردد
+          // به عنوان مثال:
+          // SharedPreferences prefs = await SharedPreferences.getInstance();
+          // await prefs.setBool('isLoggedIn', true);
+          // await prefs.setString('userToken', 'your_auth_token_from_server');
+          // await prefs.setString('username', usernameOrEmail); // یا هر اطلاعات دیگری که نیاز دارید
+          print('LoginScreen: Login successful (simulated). Navigating to MainTabsScreen.');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Welcome back, $usernameOrEmail!')), // بازخورد به کاربر
+          );
+          Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const MainTabsScreen()),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Login failed. Invalid username or password.')),
+            const SnackBar(content: Text('Login failed. Invalid username or password. Please try again.')),
           );
         }
         setState(() => _isLoading = false); // پنهان کردن لودینگ
@@ -98,21 +104,40 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _handleForgotPassword() {
+    // TODO: در آینده این بخش می‌تواند به یک صفحه جدید ناوبری کند یا یک فرآیند بازیابی رمز را شروع کند.
+    // فعلا یک دیالوگ ساده نمایش می‌دهیم.
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Forgot Password'),
+          content: const Text('This feature is not yet implemented. It will allow password recovery in a future update.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+    print('LoginScreen: Forgot password pressed.');
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
-    final Color iconColor = Colors.grey[500]!; // یا از theme.inputDecorationTheme.prefixIconColor
+    final Color iconColor = Colors.grey[500]!;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Login'),
-        // می‌توانید leading را برای بازگشت به AuthScreen اضافه کنید اگر لازم است
-        // leading: IconButton(
-        //   icon: Icon(Icons.arrow_back),
-        //   onPressed: () => Navigator.of(context).pop(),
-        // ),
       ),
       body: SafeArea(
         child: Center(
@@ -129,12 +154,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: textTheme.headlineSmall?.copyWith(
                       color: colorScheme.onBackground,
-                      fontWeight: FontWeight.bold, // اضافه کردن bold برای تاکید
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Enter your login information below', // تغییر متن برای وضوح بیشتر
+                    'Enter your login information below',
                     textAlign: TextAlign.center,
                     style: textTheme.titleMedium?.copyWith(
                       color: colorScheme.onBackground.withOpacity(0.7),
@@ -144,14 +169,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _usernameController,
                     decoration: InputDecoration(
-                      labelText: 'Username or Email', // استفاده از labelText
-                      // hintText: 'Username / Email', // hintText در صورت نیاز
+                      labelText: 'Username or Email',
                       prefixIcon: Icon(Icons.person_outline, color: iconColor, size: 20),
-                      // بقیه استایل‌ها از theme.inputDecorationTheme خوانده می‌شوند
                     ),
                     validator: _validateUsernameOrEmail,
-                    autovalidateMode: AutovalidateMode.onUserInteraction, // اعتبارسنجی هنگام تعامل کاربر
-                    keyboardType: TextInputType.emailAddress, // برای نمایش کیبورد مناسب
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    keyboardType: TextInputType.emailAddress,
                   ),
                   const SizedBox(height: 20.0),
                   TextFormField(
@@ -176,13 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {
-                        // TODO: پیاده‌سازی فراموشی رمز عبور
-                        print('LoginScreen: Forgot password pressed (TODO)');
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Forgot password functionality is not implemented yet.')),
-                        );
-                      },
+                      onPressed: _handleForgotPassword, // استفاده از متد جدید
                       child: const Text('Forgot password?'),
                     ),
                   ),
@@ -190,7 +207,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : ElevatedButton(
-                    style: theme.elevatedButtonTheme.style, // استفاده از تم تعریف شده در main.dart
+                    style: theme.elevatedButtonTheme.style,
                     onPressed: _login,
                     child: const Text('Login'),
                   ),
@@ -202,7 +219,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(color: colorScheme.onBackground.withOpacity(0.7), fontSize: 14.0)),
                       GestureDetector(
                         onTap: () {
-                          Navigator.push( // استفاده از push به جای pushReplacement تا کاربر بتواند به صفحه لاگین برگردد اگر بخواهد
+                          Navigator.push(
                             context,
                             MaterialPageRoute(builder: (context) => const SignUpScreen()),
                           );

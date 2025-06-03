@@ -16,10 +16,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
+  bool _isLoading = false; // برای نمایش CircularProgressIndicator هنگام ثبت نام
 
   @override
   void dispose() {
@@ -42,18 +42,86 @@ class _SignUpScreenState extends State<SignUpScreen> {
     });
   }
 
-  void _signUp() {
-    print(
-        'SignUpScreen: Sign Up button pressed. Navigating to MainTabsScreen (validation & actual signup skipped).');
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const MainTabsScreen()),
+  Future<void> _signUp() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      String username = _usernameController.text;
+      String email = _emailController.text;
+      // String password = _passwordController.text; // از چاپ رمز عبور خودداری کنید
+
+      print('SignUpScreen: Form is valid. Attempting to sign up...');
+      print('Username: $username, Email: $email');
+
+      // شبیه‌سازی تاخیر شبکه و ارتباط با بک‌اند برای ثبت نام
+      await Future.delayed(const Duration(seconds: 2));
+
+      // TODO: اینجا باید با بک‌اند ارتباط برقرار کنید، نام کاربری را برای تکراری نبودن بررسی کنید
+      // و در صورت موفقیت، کاربر را ثبت کنید.
+      bool signupSuccess = true; // برای تست، فرض می‌کنیم ثبت نام همیشه موفق است
+
+      if (mounted) {
+        if (signupSuccess) {
+          // TODO: پس از ثبت نام موفق و دریافت پاسخ از سرور (مثلا توکن یا اطلاعات کاربر)
+          // می‌توانید آن‌ها را در SharedPreferences ذخیره کنید، مشابه آنچه در LoginScreen گفته شد.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Signup successful! Welcome, $username!')),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MainTabsScreen()),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Signup failed. Username or email might be taken, or server error.')),
+          );
+        }
+        setState(() => _isLoading = false);
+      }
+    } else {
+      print('SignUpScreen: Form is invalid.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please correct the errors in the form.')),
+        );
+      }
+    }
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter a password';
+    }
+    if (value.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!RegExp(r'(?=.*[A-Z])').hasMatch(value)) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!RegExp(r'(?=.*[a-z])').hasMatch(value)) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!RegExp(r'(?=.*\d)').hasMatch(value)) {
+      return 'Password must contain at least one digit';
+    }
+    // PDF: "و نباید دقیقا شامل نام کاربری باشد"
+    // این بررسی در فرانت‌اند کمی پیچیده‌تر است چون نیاز به دسترسی به مقدار فیلد نام کاربری دارد.
+    // یک راه حل، بررسی این مورد در متد _signUp قبل از ارسال به سرور است.
+    // if (_usernameController.text.isNotEmpty && value.toLowerCase().contains(_usernameController.text.toLowerCase())) {
+    //   return 'Password should not contain your username';
+    // }
+    return null;
+  }
+
+  void _signUpWithGoogle() {
+    // TODO: پیاده‌سازی واقعی ثبت نام با گوگل
+    print('SignUpScreen: Sign Up with Google pressed (TODO)');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sign up with Google is not yet implemented.')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    print("SignUpScreen: build called");
     final ThemeData theme = Theme.of(context);
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
@@ -69,9 +137,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding:
-                const EdgeInsets.symmetric(horizontal: 32.0, vertical: 20.0),
+            const EdgeInsets.symmetric(horizontal: 32.0, vertical: 20.0),
             child: Form(
               key: _formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction, // برای نمایش خطاها به محض تایپ
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -90,24 +159,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'Username',
-                      hintStyle: theme.inputDecorationTheme.hintStyle ??
-                          TextStyle(color: Colors.grey[600]),
-                      fillColor: theme.inputDecorationTheme.fillColor ??
-                          const Color(0xFF2C2C2C),
-                      filled: theme.inputDecorationTheme.filled ?? true,
                       prefixIcon: Icon(Icons.person_outline,
                           color: iconColor, size: 20),
-                      contentPadding: theme.inputDecorationTheme.contentPadding,
-                      border: theme.inputDecorationTheme.border,
-                      enabledBorder: theme.inputDecorationTheme.enabledBorder,
-                      focusedBorder: theme.inputDecorationTheme.focusedBorder,
-                      errorBorder: theme.inputDecorationTheme.errorBorder,
-                      focusedErrorBorder:
-                          theme.inputDecorationTheme.focusedErrorBorder,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter a username';
+                      }
+                      if (value.length < 4) {
+                        return 'Username must be at least 4 characters';
                       }
                       return null;
                     },
@@ -119,27 +179,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     keyboardType: TextInputType.emailAddress,
                     decoration: InputDecoration(
                       hintText: 'Email',
-                      hintStyle: theme.inputDecorationTheme.hintStyle ??
-                          TextStyle(color: Colors.grey[600]),
-                      fillColor: theme.inputDecorationTheme.fillColor ??
-                          const Color(0xFF2C2C2C),
-                      filled: theme.inputDecorationTheme.filled ?? true,
                       prefixIcon: Icon(Icons.email_outlined,
                           color: iconColor, size: 20),
-                      contentPadding: theme.inputDecorationTheme.contentPadding,
-                      border: theme.inputDecorationTheme.border,
-                      enabledBorder: theme.inputDecorationTheme.enabledBorder,
-                      focusedBorder: theme.inputDecorationTheme.focusedBorder,
-                      errorBorder: theme.inputDecorationTheme.errorBorder,
-                      focusedErrorBorder:
-                          theme.inputDecorationTheme.focusedErrorBorder,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your email';
                       }
                       if (!RegExp(
-                              r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+")
+                          r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+")
                           .hasMatch(value)) {
                         return 'Please enter a valid email address';
                       }
@@ -153,13 +201,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'Password',
-                      hintStyle: theme.inputDecorationTheme.hintStyle ??
-                          TextStyle(color: Colors.grey[600]),
-                      fillColor: theme.inputDecorationTheme.fillColor ??
-                          const Color(0xFF2C2C2C),
-                      filled: theme.inputDecorationTheme.filled ?? true,
                       prefixIcon:
-                          Icon(Icons.lock_outline, color: iconColor, size: 20),
+                      Icon(Icons.lock_outline, color: iconColor, size: 20),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
@@ -170,23 +213,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                         onPressed: _togglePasswordVisibility,
                       ),
-                      contentPadding: theme.inputDecorationTheme.contentPadding,
-                      border: theme.inputDecorationTheme.border,
-                      enabledBorder: theme.inputDecorationTheme.enabledBorder,
-                      focusedBorder: theme.inputDecorationTheme.focusedBorder,
-                      errorBorder: theme.inputDecorationTheme.errorBorder,
-                      focusedErrorBorder:
-                          theme.inputDecorationTheme.focusedErrorBorder,
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter a password';
-                      }
-                      if (value.length < 8) {
-                        return 'Password must be at least 8 characters long';
-                      }
-                      return null;
-                    },
+                    validator: _validatePassword, // استفاده از ولیدیتور جدید
                   ),
                   const SizedBox(height: 20.0),
                   TextFormField(
@@ -195,13 +223,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'Confirm Password',
-                      hintStyle: theme.inputDecorationTheme.hintStyle ??
-                          TextStyle(color: Colors.grey[600]),
-                      fillColor: theme.inputDecorationTheme.fillColor ??
-                          const Color(0xFF2C2C2C),
-                      filled: theme.inputDecorationTheme.filled ?? true,
                       prefixIcon:
-                          Icon(Icons.lock_outline, color: iconColor, size: 20),
+                      Icon(Icons.lock_outline, color: iconColor, size: 20),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible
@@ -212,13 +235,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                         onPressed: _toggleConfirmPasswordVisibility,
                       ),
-                      contentPadding: theme.inputDecorationTheme.contentPadding,
-                      border: theme.inputDecorationTheme.border,
-                      enabledBorder: theme.inputDecorationTheme.enabledBorder,
-                      focusedBorder: theme.inputDecorationTheme.focusedBorder,
-                      errorBorder: theme.inputDecorationTheme.errorBorder,
-                      focusedErrorBorder:
-                          theme.inputDecorationTheme.focusedErrorBorder,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -231,12 +247,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     },
                   ),
                   const SizedBox(height: 30.0),
-                  ElevatedButton(
+                  _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : ElevatedButton(
                     style: theme.elevatedButtonTheme.style?.copyWith(
                       backgroundColor:
-                          MaterialStateProperty.all(colorScheme.primary),
+                      MaterialStateProperty.all(colorScheme.primary),
                       foregroundColor:
-                          MaterialStateProperty.all(colorScheme.onPrimary),
+                      MaterialStateProperty.all(colorScheme.onPrimary),
                     ),
                     onPressed: _signUp,
                     child: const Text('Sign up'),
@@ -275,9 +293,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         borderRadius: BorderRadius.circular(12.0),
                       ),
                     ),
-                    onPressed: () {
-                      print('SignUpScreen: Sign Up with Google pressed (TODO)');
-                    },
+                    onPressed: _signUpWithGoogle, // استفاده از متد جدید
                   ),
                   const SizedBox(height: 30.0),
                   Row(
@@ -288,8 +304,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               color: secondaryTextColor, fontSize: 14.0)),
                       GestureDetector(
                         onTap: () {
-                          print(
-                              "SignUpScreen: Login link tapped, navigating to LoginScreen.");
                           if (Navigator.canPop(context)) {
                             Navigator.pop(context);
                           } else {
