@@ -1,17 +1,18 @@
 // lib/user_auth_provider.dart
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'shared_pref_keys.dart';
-import 'subscription_screen.dart' as sub_screen; // <--- اطمینان از وجود این import
+import 'subscription_screen.dart' as sub_screen;
 
 class UserAuthProvider with ChangeNotifier {
   bool _isLoggedIn = false;
   String? _username;
   String? _email;
   String? _userToken;
-  sub_screen.SubscriptionTier _userSubscriptionTier = sub_screen.SubscriptionTier.none; // مقدار اولیه
+  sub_screen.SubscriptionTier _userSubscriptionTier = sub_screen.SubscriptionTier.none;
   DateTime? _userSubscriptionExpiryDate;
-  double _userCredit = 0.0; // مقدار اولیه
+  double _userCredit = 0.0;
 
   bool _isLoading = true;
 
@@ -56,9 +57,6 @@ class UserAuthProvider with ChangeNotifier {
           _userSubscriptionExpiryDate!.isBefore(DateTime.now())) {
         _userSubscriptionTier = sub_screen.SubscriptionTier.none;
         _userSubscriptionExpiryDate = null;
-        // اختیاری: پاک کردن از prefs
-        // await prefs.remove(SharedPrefKeys.userSubscriptionTier);
-        // await prefs.remove(SharedPrefKeys.userSubscriptionExpiry);
       }
     } else {
       _username = null;
@@ -68,7 +66,6 @@ class UserAuthProvider with ChangeNotifier {
       _userSubscriptionExpiryDate = null;
       _userCredit = 0.0;
     }
-    // notifyListeners() در انتهای _initializeUser یا reloadUserDataFromPrefs فراخوانی می‌شود
   }
 
   Future<void> reloadUserDataFromPrefs() async {
@@ -80,53 +77,76 @@ class UserAuthProvider with ChangeNotifier {
     print("UserAuthProvider: User data reloaded from prefs.");
   }
 
-  Future<void> login(String usernameOrEmail, String token,
-      {String? fetchedUsername, String? fetchedEmail}) async {
+  Future<void> loginWithData({
+    required String username,
+    required String email,
+    required String token,
+    required double credit,
+    required String tierString,
+    required String expiryString,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = true;
     _userToken = token;
-    _username = fetchedUsername ??
-        (usernameOrEmail.contains('@')
-            ? usernameOrEmail.split('@')[0]
-            : usernameOrEmail);
-    _email = fetchedEmail ??
-        (usernameOrEmail.contains('@') ? usernameOrEmail : null);
+    _username = username;
+    _email = email.isNotEmpty ? email : null;
+    _userCredit = credit;
+
+    _userSubscriptionTier = sub_screen.SubscriptionTier.values.firstWhere(
+          (e) => e.name == tierString,
+      orElse: () => sub_screen.SubscriptionTier.none,
+    );
+
+    if (expiryString != 'null' && expiryString.isNotEmpty) {
+      _userSubscriptionExpiryDate = DateTime.tryParse(expiryString);
+    } else {
+      _userSubscriptionExpiryDate = null;
+    }
 
     await prefs.setBool(SharedPrefKeys.userIsLoggedIn, true);
     await prefs.setString(SharedPrefKeys.userToken, token);
-    if (_username != null) {
-      await prefs.setString(SharedPrefKeys.userProfileName, _username!);
-    }
+    await prefs.setString(SharedPrefKeys.userProfileName, _username!);
     if (_email != null) {
       await prefs.setString(SharedPrefKeys.userProfileEmail, _email!);
     }
+    await prefs.setDouble(SharedPrefKeys.userCredit, _userCredit);
+    await prefs.setInt(SharedPrefKeys.userSubscriptionTier, _userSubscriptionTier.index);
+    if (_userSubscriptionExpiryDate != null) {
+      await prefs.setInt(SharedPrefKeys.userSubscriptionExpiry, _userSubscriptionExpiryDate!.millisecondsSinceEpoch);
+    } else {
+      await prefs.remove(SharedPrefKeys.userSubscriptionExpiry);
+    }
 
-    await _loadUserFromPrefs(); // بارگذاری اطلاعات اشتراک و اعتبار
     _isLoading = false;
     notifyListeners();
   }
 
-  Future<void> signUpAndLogin(
-      String newUsername, String newEmail, String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(SharedPrefKeys.userSubscriptionTier,
-        sub_screen.SubscriptionTier.none.index);
-    await prefs.remove(SharedPrefKeys.userSubscriptionExpiry);
-    await prefs.setDouble(SharedPrefKeys.userCredit, 0.0);
-
-    await login(newUsername, token,
-        fetchedUsername: newUsername, fetchedEmail: newEmail);
-  }
-
   Future<void> updateProfile(String newUsername, String newEmail) async {
-    final prefs = await SharedPreferences.getInstance();
+    // این متد فقط UI را آپدیت می‌کند، چون سرور منبع اصلی اطلاعات است.
+    // SharedPreferences هم توسط loginWithData یا reloadUserDataFromPrefs آپدیت می‌شود.
     _username = newUsername;
     _email = newEmail;
+
+    // برای اطمینان می‌توانیم SharedPreferences را هم آپدیت کنیم
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(SharedPrefKeys.userProfileName, newUsername);
     await prefs.setString(SharedPrefKeys.userProfileEmail, newEmail);
+
     notifyListeners();
   }
-
+  Future<void> signUpAndLogin(
+      String newUsername, String newEmail, String token) async {
+    // پس از ثبت‌نام، کاربر را با اطلاعات اولیه و پیش‌فرض لاگین می‌کنیم.
+    await loginWithData(
+      username: newUsername,
+      email: newEmail,
+      token: token,
+      credit: 0.0,            // اعتبار اولیه برای کاربر جدید
+      tierString: "none",       // اشتراک اولیه
+      expiryString: "null",     // تاریخ انقضای اولیه
+    );
+  }
+  //++++++++++++ این متد اضافه شده است ++++++++++++
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = false;
@@ -137,6 +157,7 @@ class UserAuthProvider with ChangeNotifier {
     _userSubscriptionExpiryDate = null;
     _userCredit = 0.0;
 
+    // پاک کردن تمام اطلاعات کاربر از حافظه دستگاه
     await prefs.remove(SharedPrefKeys.userIsLoggedIn);
     await prefs.remove(SharedPrefKeys.userToken);
     await prefs.remove(SharedPrefKeys.userProfileName);
@@ -144,8 +165,10 @@ class UserAuthProvider with ChangeNotifier {
     await prefs.remove(SharedPrefKeys.userSubscriptionTier);
     await prefs.remove(SharedPrefKeys.userSubscriptionExpiry);
     await prefs.remove(SharedPrefKeys.userCredit);
+    await prefs.remove(SharedPrefKeys.userProfileImagePath); // عکس پروفایل هم پاک شود
 
     _isLoading = false;
     notifyListeners();
   }
+//++++++++++++++++++++++++++++++++++++++++++++++
 }

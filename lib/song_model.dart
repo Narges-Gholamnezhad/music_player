@@ -1,7 +1,7 @@
 // lib/song_model.dart
 import 'package:shared_preferences/shared_preferences.dart';
 import 'shared_pref_keys.dart';
-import 'dart:math'; // برای تابع min
+import 'dart:math';
 
 enum SongAccessTier {
   free,
@@ -90,8 +90,7 @@ class Song {
 
   factory Song.fromDataString(String dataString) {
     final parts = dataString.split(';;');
-    // title;artist;audioUrl;coverPath;isLocal;mediaStoreId;isDownloaded;accessTier;price;dateAdded(ISO);shopUniqueIdentifierBasis
-    if (parts.length < 11) { // قبلا ۱۰ بود، حالا باید ۱۱ باشد
+    if (parts.length < 11) {
       print("Song.fromDataString: Invalid data string. Expected 11 parts, got ${parts.length}. Data: $dataString");
       throw FormatException("Invalid song data string format (missing shopUniqueIdentifierBasis field?)");
     }

@@ -32,4 +32,9 @@ class NowPlayingModel {
       currentIndexInPlaylist: currentIndexInPlaylist ?? this.currentIndexInPlaylist,
     );
   }
+  //چه آهنگی الان در حال پخشه؟
+// از کدوم لیست پخش (playlist) این آهنگ انتخاب شده؟
+// این آهنگ، چندمین آهنگ در اون لیست پخشه؟
+// آیا دکمه "پخش" روشنه یا "مکث"؟
+// کلاً کدوم دستگاه پلیر داره این آهنگ رو پخش می‌کنه؟
 }

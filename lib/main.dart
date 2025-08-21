@@ -1,18 +1,16 @@
 // lib/main.dart
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';//کتابخونه  اصلی فلاتر برای ویجت های طراحی شده
+import 'package:provider/provider.dart';//(State Management) لاگین. اینجا ازش استفاده کردی تا اطلاعات
+import 'package:shared_preferences/shared_preferences.dart';// این پکیج برای ذخیره داده‌های ساده (مثل تنظیمات کاربر) روی حافظه دستگاهه.
 
-import 'splash_screen.dart'; // SplashScreen خودش ناوبری را انجام می‌دهد
-import 'user_auth_provider.dart';
-import 'shared_pref_keys.dart';
+import 'splash_screen.dart'; // فایل صفحه اسپلش رو وارد کردی تا به عنوان اولین صفحه به MaterialApp معرفی کنی
+import 'user_auth_provider.dart';//ایل مدیر وضعیت کاربر رو وارد کردی تا بتونی یک نمونه ازش رو با
+import 'shared_pref_keys.dart';//فایل کلیدها رو وارد کردی تا برای خوندن تم ذخیره شده ازش استفاده کنی.
 
-// ValueNotifier برای مدیریت تم به صورت سراسری
 final ValueNotifier<ThemeMode> activeThemeMode = ValueNotifier(ThemeMode.system);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // خواندن تم ذخیره شده قبل از اجرای اپ
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? savedTheme = prefs.getString(SharedPrefKeys.appThemeMode);
@@ -21,11 +19,11 @@ Future<void> main() async {
     } else if (savedTheme == 'dark') {
       activeThemeMode.value = ThemeMode.dark;
     } else {
-      activeThemeMode.value = ThemeMode.system; // پیش‌فرض
+      activeThemeMode.value = ThemeMode.system;
     }
   } catch (e) {
     print("Error loading theme preference: $e");
-    activeThemeMode.value = ThemeMode.system; // در صورت خطا، پیش‌فرض
+    activeThemeMode.value = ThemeMode.system;
   }
 
   runApp(

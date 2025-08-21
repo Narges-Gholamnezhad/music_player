@@ -4,8 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'payment_screen.dart';
 
 class SubscriptionPreferences {
-  static const String prefUserSubscriptionTier = 'user_subscription_tier_global_v2';
-  static const String prefUserSubscriptionExpiry = 'user_subscription_expiry_global_v2';
+  static const String prefUserSubscriptionTier =
+      'user_subscription_tier_global_v2';
+  static const String prefUserSubscriptionExpiry =
+      'user_subscription_expiry_global_v2';
   static const String prefUserCredit = 'user_credit_global_v2';
 }
 
@@ -85,9 +87,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (!mounted) return;
     setState(() {
       _currentUserTierUI = SubscriptionTier.values[
-      _prefs!.getInt(SubscriptionPreferences.prefUserSubscriptionTier) ?? SubscriptionTier.none.index];
-      final expiryMillis = _prefs!.getInt(SubscriptionPreferences.prefUserSubscriptionExpiry);
-      _subscriptionExpiryUI = expiryMillis != null ? DateTime.fromMillisecondsSinceEpoch(expiryMillis) : null;
+          _prefs!.getInt(SubscriptionPreferences.prefUserSubscriptionTier) ??
+              SubscriptionTier.none.index];
+      final expiryMillis =
+          _prefs!.getInt(SubscriptionPreferences.prefUserSubscriptionExpiry);
+      _subscriptionExpiryUI = expiryMillis != null
+          ? DateTime.fromMillisecondsSinceEpoch(expiryMillis)
+          : null;
 
       if (_currentUserTierUI != SubscriptionTier.none &&
           _subscriptionExpiryUI != null &&
@@ -100,18 +106,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
   }
 
-  Future<void> _subscribeToPlan(BuildContext context, SubscriptionPlan plan) async {
+  Future<void> _subscribeToPlan(
+      BuildContext context, SubscriptionPlan plan) async {
     if (_prefs == null) _prefs = await SharedPreferences.getInstance();
 
-    bool isActiveAndEqualOrHigher = _currentUserTierUI.index >= plan.tier.index &&
-        (_subscriptionExpiryUI != null && _subscriptionExpiryUI!.isAfter(DateTime.now()));
+    bool isActiveAndEqualOrHigher =
+        _currentUserTierUI.index >= plan.tier.index &&
+            (_subscriptionExpiryUI != null &&
+                _subscriptionExpiryUI!.isAfter(DateTime.now()));
 
     if (isActiveAndEqualOrHigher) {
       if (_currentUserTierUI == plan.tier) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You are already subscribed to ${plan.name}.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('You are already subscribed to ${plan.name}.')));
         return;
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You currently have a higher plan. To choose ${plan.name}, please cancel your current plan first.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'You currently have a higher plan. To choose ${plan.name}, please cancel your current plan first.')));
         return;
       }
     }
@@ -128,8 +140,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     if (paymentSuccessful == true && mounted) {
       final newExpiryDate = DateTime.now().add(const Duration(days: 30));
-      await _prefs!.setInt(SubscriptionPreferences.prefUserSubscriptionTier, plan.tier.index);
-      await _prefs!.setInt(SubscriptionPreferences.prefUserSubscriptionExpiry, newExpiryDate.millisecondsSinceEpoch);
+      await _prefs!.setInt(
+          SubscriptionPreferences.prefUserSubscriptionTier, plan.tier.index);
+      await _prefs!.setInt(SubscriptionPreferences.prefUserSubscriptionExpiry,
+          newExpiryDate.millisecondsSinceEpoch);
       _hasSubscriptionChanged = true; // تغییر رخ داده
 
       setState(() {
@@ -137,10 +151,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         _subscriptionExpiryUI = newExpiryDate;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully subscribed to ${plan.name}!')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Successfully subscribed to ${plan.name}!')));
       // اینجا pop نمی‌کنیم تا کاربر بتواند نتیجه را ببیند، WillPopScope هندل می‌کند
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscription payment failed or was cancelled.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Subscription payment failed or was cancelled.')));
     }
   }
 
@@ -152,14 +168,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Cancel Subscription'),
-          content: const Text('Are you sure you want to cancel your current subscription? This action cannot be undone.'),
+          content: const Text(
+              'Are you sure you want to cancel your current subscription? This action cannot be undone.'),
           actions: <Widget>[
             TextButton(
               child: const Text('No'),
               onPressed: () => Navigator.of(context).pop(false),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+              style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error),
               child: const Text('Yes, Cancel'),
               onPressed: () => Navigator.of(context).pop(true),
             ),
@@ -192,7 +210,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     final bool isSubscriptionActiveAndNotExpired =
         _currentUserTierUI != SubscriptionTier.none &&
-            (_subscriptionExpiryUI != null && _subscriptionExpiryUI!.isAfter(DateTime.now()));
+            (_subscriptionExpiryUI != null &&
+                _subscriptionExpiryUI!.isAfter(DateTime.now()));
 
     return WillPopScope(
       onWillPop: () async {
@@ -216,18 +235,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   itemCount: subscriptionPlans.length,
                   itemBuilder: (context, index) {
                     final plan = subscriptionPlans[index];
-                    final bool isThisTheCurrentPlan = (isSubscriptionActiveAndNotExpired && _currentUserTierUI == plan.tier);
+                    final bool isThisTheCurrentPlan =
+                        (isSubscriptionActiveAndNotExpired &&
+                            _currentUserTierUI == plan.tier);
 
                     Widget actionButton;
 
                     if (isThisTheCurrentPlan) {
                       actionButton = ElevatedButton.icon(
-                        icon: Icon(Icons.cancel_outlined, color: theme.colorScheme.onErrorContainer),
-                        label: Text('Cancel Subscription', style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+                        icon: Icon(Icons.cancel_outlined,
+                            color: theme.colorScheme.onErrorContainer),
+                        label: Text('Cancel Subscription',
+                            style: TextStyle(
+                                color: theme.colorScheme.onErrorContainer)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: theme.colorScheme.errorContainer,
                           padding: const EdgeInsets.symmetric(vertical: 14.0),
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          textStyle: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         onPressed: _cancelSubscription,
                       );
@@ -237,8 +262,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       Color buttonColor = plan.highlightColor;
 
                       // اگر کاربر اشتراک فعالی دارد که بالاتر از این پلن است، دکمه را غیرفعال کن
-                      if (isSubscriptionActiveAndNotExpired && _currentUserTierUI.index > plan.tier.index) {
-                        buttonText = 'Choose Plan'; // یا پیام دیگری مثل 'Downgrade not directly supported'
+                      if (isSubscriptionActiveAndNotExpired &&
+                          _currentUserTierUI.index > plan.tier.index) {
+                        buttonText =
+                            'Choose Plan'; // یا پیام دیگری مثل 'Downgrade not directly supported'
                         canChooseThisPlan = false; // دکمه غیرفعال می‌شود
                         buttonColor = Colors.grey[600]!;
                       }
@@ -250,20 +277,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           foregroundColor: Colors.white,
                           disabledForegroundColor: Colors.grey[500],
                           padding: const EdgeInsets.symmetric(vertical: 14.0),
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          textStyle: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
                         ),
-                        onPressed: canChooseThisPlan ? () => _subscribeToPlan(context, plan) : null,
+                        onPressed: canChooseThisPlan
+                            ? () => _subscribeToPlan(context, plan)
+                            : null,
                         child: Text(buttonText),
                       );
                     }
 
                     return Card(
                       elevation: 3,
-                      margin: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 8.0),
+                      margin: const EdgeInsets.symmetric(
+                          vertical: 10.0, horizontal: 8.0),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12.0),
                         side: BorderSide(
-                          color: isThisTheCurrentPlan ? plan.highlightColor : Colors.transparent,
+                          color: isThisTheCurrentPlan
+                              ? plan.highlightColor
+                              : Colors.transparent,
                           width: 2.5,
                         ),
                       ),
@@ -283,34 +316,43 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                     fontWeight: FontWeight.w600)),
                             const SizedBox(height: 16),
                             Text('Features:',
-                                style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500)),
+                                style: textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w500)),
                             const SizedBox(height: 8),
                             ...plan.features.map((feature) => Padding(
-                              padding: const EdgeInsets.only(top: 6.0, left: 8.0),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(Icons.check_circle_outline, size: 18, color: Colors.green[400]),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                      child: Text(feature,
-                                          style: textTheme.bodyMedium?.copyWith(
-                                              color: colorScheme.onSurface.withOpacity(0.9)))),
-                                ],
-                              ),
-                            )),
+                                  padding: const EdgeInsets.only(
+                                      top: 6.0, left: 8.0),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(Icons.check_circle_outline,
+                                          size: 18, color: Colors.green[400]),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                          child: Text(feature,
+                                              style: textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                      color: colorScheme
+                                                          .onSurface
+                                                          .withOpacity(0.9)))),
+                                    ],
+                                  ),
+                                )),
                             const SizedBox(height: 24),
                             SizedBox(
                               width: double.infinity,
                               child: actionButton,
                             ),
-                            if (isThisTheCurrentPlan && _subscriptionExpiryUI != null)
+                            if (isThisTheCurrentPlan &&
+                                _subscriptionExpiryUI != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 12.0),
                                 child: Center(
                                   child: Text(
                                     "Active until: ${_subscriptionExpiryUI!.day}/${_subscriptionExpiryUI!.month}/${_subscriptionExpiryUI!.year}",
-                                    style: textTheme.bodySmall?.copyWith(color: Colors.grey[500]),
+                                    style: textTheme.bodySmall
+                                        ?.copyWith(color: Colors.grey[500]),
                                   ),
                                 ),
                               )
