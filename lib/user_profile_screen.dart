@@ -1,5 +1,6 @@
 // lib/user_profile_screen.dart
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,8 @@ import 'shared_pref_keys.dart';
 import 'user_auth_provider.dart';
 import 'login_screen.dart';
 import 'signup_screen.dart';
+import 'payment_screen.dart';
+import 'socket_service.dart';
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
@@ -58,23 +61,29 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
 
-    final String? imagePath = _prefs!.getString(SharedPrefKeys.userProfileImagePath);
+    final String? imagePath =
+        _prefs!.getString(SharedPrefKeys.userProfileImagePath);
     File? tempImageFile;
     if (imagePath != null && imagePath.isNotEmpty) {
       tempImageFile = File(imagePath);
       if (!await tempImageFile.exists()) {
         tempImageFile = null;
-        if (_prefs != null) { // اطمینان از null نبودن prefs
+        if (_prefs != null) {
+          // اطمینان از null نبودن prefs
           await _prefs!.remove(SharedPrefKeys.userProfileImagePath);
         }
       }
     }
 
-    final String savedTheme = _prefs!.getString(SharedPrefKeys.appThemeMode) ?? 'system';
+    final String savedTheme =
+        _prefs!.getString(SharedPrefKeys.appThemeMode) ?? 'system';
     ThemeMode themeToSet;
-    if (savedTheme == 'light') themeToSet = ThemeMode.light;
-    else if (savedTheme == 'dark') themeToSet = ThemeMode.dark;
-    else themeToSet = ThemeMode.system;
+    if (savedTheme == 'light')
+      themeToSet = ThemeMode.light;
+    else if (savedTheme == 'dark')
+      themeToSet = ThemeMode.dark;
+    else
+      themeToSet = ThemeMode.system;
 
     if (mounted) {
       setState(() {
@@ -116,7 +125,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    _prefs ??= await SharedPreferences.getInstance(); // اطمینان از مقداردهی اولیه
+    _prefs ??=
+        await SharedPreferences.getInstance(); // اطمینان از مقداردهی اولیه
     PermissionStatus status;
     if (source == ImageSource.camera) {
       status = await Permission.camera.request();
@@ -124,29 +134,34 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (Platform.isAndroid) {
         DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
         final AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-        if (androidInfo.version.sdkInt >= 33) { // Android 13+
+        if (androidInfo.version.sdkInt >= 33) {
+          // Android 13+
           status = await Permission.photos.request();
         } else {
           status = await Permission.storage.request();
         }
-      } else { // iOS or other platforms
+      } else {
+        // iOS or other platforms
         status = await Permission.photos.request();
       }
     }
 
     if (status.isGranted) {
       try {
-        final XFile? pickedFile = await _picker.pickImage(source: source, imageQuality: 70, maxWidth: 800);
+        final XFile? pickedFile = await _picker.pickImage(
+            source: source, imageQuality: 70, maxWidth: 800);
         if (pickedFile != null) {
           final File newImage = File(pickedFile.path);
           final Directory appDir = await getApplicationDocumentsDirectory();
-          final String fileName = 'profile_pic_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          final String fileName =
+              'profile_pic_${DateTime.now().millisecondsSinceEpoch}.jpg';
           final String newPath = '${appDir.path}/$fileName';
 
           // حذف عکس قبلی اگر وجود دارد و مسیرش متفاوت است
           if (_profileImageFile != null && await _profileImageFile!.exists()) {
             try {
-              if (_profileImageFile!.path != newPath) { // فقط اگر مسیر متفاوت است حذف کن
+              if (_profileImageFile!.path != newPath) {
+                // فقط اگر مسیر متفاوت است حذف کن
                 await _profileImageFile!.delete();
               }
             } catch (e) {
@@ -157,30 +172,36 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           final File savedImage = await newImage.copy(newPath);
           if (mounted) {
             setState(() => _profileImageFile = savedImage);
-            await _prefs!.setString(SharedPrefKeys.userProfileImagePath, savedImage.path);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile picture updated!")));
+            await _prefs!.setString(
+                SharedPrefKeys.userProfileImagePath, savedImage.path);
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Profile picture updated!")));
           }
         }
-      } catch (e,s) {
+      } catch (e, s) {
         print("Error picking/saving image: $e\n$s");
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to update profile picture.")));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("Failed to update profile picture.")));
       }
     } else if (status.isPermanentlyDenied && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(source == ImageSource.camera ? 'Camera permission permanently denied.' : 'Gallery/Storage permission permanently denied.'),
-            action: SnackBarAction(label: 'Settings', onPressed: openAppSettings),
-          )
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(source == ImageSource.camera
+            ? 'Camera permission permanently denied.'
+            : 'Gallery/Storage permission permanently denied.'),
+        action: SnackBarAction(label: 'Settings', onPressed: openAppSettings),
+      ));
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(source == ImageSource.camera ? 'Camera permission denied.' : 'Gallery/Storage permission denied.'))
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(source == ImageSource.camera
+              ? 'Camera permission denied.'
+              : 'Gallery/Storage permission denied.')));
     }
   }
 
   void _editProfile() async {
-    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    final userAuthProvider =
+        Provider.of<UserAuthProvider>(context, listen: false);
     if (!userAuthProvider.isLoggedIn) {
       _promptLogin("edit your profile");
       return;
@@ -190,40 +211,99 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       MaterialPageRoute(builder: (context) => const EditProfileScreen()),
     );
     if (result == true && mounted) {
-      await Provider.of<UserAuthProvider>(context, listen: false).reloadUserDataFromPrefs();
+      await Provider.of<UserAuthProvider>(context, listen: false)
+          .reloadUserDataFromPrefs();
     }
   }
 
   void _navigateToFavorites() async {
-    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    final userAuthProvider =
+        Provider.of<UserAuthProvider>(context, listen: false);
     if (!userAuthProvider.isLoggedIn) {
       _promptLogin("view your favorites");
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesScreen()));
+    Navigator.push(context,
+        MaterialPageRoute(builder: (context) => const FavoritesScreen()));
   }
 
   void _manageSubscription() async {
-    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    final userAuthProvider =
+        Provider.of<UserAuthProvider>(context, listen: false);
     if (!userAuthProvider.isLoggedIn) {
       _promptLogin("manage your subscription");
       return;
     }
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (context) => const sub_screen.SubscriptionScreen()),
+      MaterialPageRoute(
+          builder: (context) => const sub_screen.SubscriptionScreen()),
     );
     if (mounted) {
-      await Provider.of<UserAuthProvider>(context, listen: false).reloadUserDataFromPrefs();
+      await Provider.of<UserAuthProvider>(context, listen: false)
+          .reloadUserDataFromPrefs();
       if (result == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Subscription status may have changed.")),
+          const SnackBar(
+              content: Text("Subscription status may have changed.")),
         );
       }
     }
   }
 
-  void _showActionDialog(String title, String content, {VoidCallback? onConfirm, String confirmText = "OK"}) {
+  Future<double?> _showAddCreditDialog() async {
+    final TextEditingController amountController = TextEditingController();
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+    return showDialog<double>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Add Credit"),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: amountController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: false),
+              decoration: const InputDecoration(
+                labelText: "Amount",
+                prefixIcon: Icon(Icons.monetization_on_outlined),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return "Please enter an amount.";
+                }
+                final amount = double.tryParse(value);
+                if (amount == null || amount <= 0) {
+                  return "Please enter a valid positive amount.";
+                }
+                return null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null), // Cancel
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  final double amount = double.parse(amountController.text);
+                  Navigator.of(context).pop(amount); // Proceed
+                }
+              },
+              child: const Text("Proceed to Payment"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showActionDialog(String title, String content,
+      {VoidCallback? onConfirm, String confirmText = "OK"}) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -249,52 +329,149 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  void _addCredit() {
-    _showActionDialog("Add Credit", "This feature (Add Credit) is not yet implemented.");
+  void _addCredit() async {
+    final userAuthProvider =
+        Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn || userAuthProvider.username == null) {
+      _promptLogin("add credit");
+      return;
+    }
+
+    // --- NEW: Show a dialog to get the amount from the user ---
+    final double? amountToAdd = await _showAddCreditDialog();
+
+    if (amountToAdd == null || amountToAdd <= 0) {
+      // User cancelled or entered an invalid amount
+      return;
+    }
+    // -----------------------------------------------------------
+
+    final paymentSuccessful = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PaymentScreen(
+          amount: amountToAdd, // Use the amount from the dialog
+          itemName: "${amountToAdd.toStringAsFixed(0)} Credits",
+        ),
+      ),
+    );
+
+    if (paymentSuccessful == true && mounted) {
+      final socketService = SocketService();
+      await socketService.connect();
+
+      String username = userAuthProvider.username!;
+      String command = "ADD_CREDIT::$username::$amountToAdd";
+
+      final completer = Completer<String>();
+      StreamSubscription? subscription;
+      subscription = socketService.responses.listen((response) {
+        if (response.startsWith("ADD_CREDIT_")) {
+          if (!completer.isCompleted) {
+            subscription?.cancel();
+            completer.complete(response);
+          }
+        }
+      });
+
+      socketService.sendCommand(command);
+
+      try {
+        final serverResponse =
+            await completer.future.timeout(const Duration(seconds: 10));
+
+        if (serverResponse.startsWith("ADD_CREDIT_SUCCESS")) {
+          // Parse the new total credit returned from the server
+          final parts = serverResponse.split('::');
+          if (parts.length == 2) {
+            // parts[1] contains the new total credit as a String
+            final double newTotalCredit =
+                double.tryParse(parts[1]) ?? userAuthProvider.userCredit;
+
+            // --- THIS IS THE KEY ---
+            // Use the method from UserAuthProvider to update the state and UI
+            await userAuthProvider.updateUserCredit(newTotalCredit);
+            // ----------------------
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Credit added successfully!')),
+              );
+            }
+          } else {
+            // If the server response was malformed
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('Received a bad response from server.')),
+              );
+            }
+          }
+        } else {
+          // Handle ADD_CREDIT_FAILED
+          final errorMessage =
+              serverResponse.split("::").last.replaceAll("_", " ");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to add credit: $errorMessage')),
+            );
+          }
+        }
+      } on TimeoutException {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Server did not respond in time.')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('An error occurred: $e')),
+        );
+      } finally {
+        subscription?.cancel();
+      }
+    }
   }
 
   void _contactSupport() {
-    _showActionDialog("Contact Support", "This feature (Contact Support/Online Chat) is not yet implemented.");
+    _showActionDialog("Contact Support",
+        "This feature (Contact Support/Online Chat) is not yet implemented.");
   }
 
   void _deleteAccount() {
-    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    final userAuthProvider =
+        Provider.of<UserAuthProvider>(context, listen: false);
     if (!userAuthProvider.isLoggedIn) {
       _promptLogin("delete your account");
       return;
     }
-    _showActionDialog(
-        "Delete Account",
+    _showActionDialog("Delete Account",
         "Are you sure you want to delete your account? This action cannot be undone and all your data will be lost.",
         onConfirm: () {
-          // TODO: پیاده‌سازی واقعی حذف حساب (ارتباط با بک‌اند)
-          print("UserProfileScreen: Delete account confirmed (TODO: implement actual deletion)");
-          // پس از حذف موفق از سرور، کاربر را logout کنید
-          Provider.of<UserAuthProvider>(context, listen: false).logout();
-          // UserProfileScreen خود به خود رفرش شده و حالت لاگین نشده را نشان می‌دهد
-        },
-        confirmText: "Yes, Delete"
-    );
+      // TODO: پیاده‌سازی واقعی حذف حساب (ارتباط با بک‌اند)
+      print(
+          "UserProfileScreen: Delete account confirmed (TODO: implement actual deletion)");
+      // پس از حذف موفق از سرور، کاربر را logout کنید
+      Provider.of<UserAuthProvider>(context, listen: false).logout();
+      // UserProfileScreen خود به خود رفرش شده و حالت لاگین نشده را نشان می‌دهد
+    }, confirmText: "Yes, Delete");
   }
 
   void _logout() {
-    _showActionDialog(
-        "Logout",
-        "Are you sure you want to logout?",
+    _showActionDialog("Logout", "Are you sure you want to logout?",
         onConfirm: () async {
-          await Provider.of<UserAuthProvider>(context, listen: false).logout();
-        },
-        confirmText: "Yes, Logout"
-    );
+      await Provider.of<UserAuthProvider>(context, listen: false).logout();
+    }, confirmText: "Yes, Logout");
   }
 
   Future<void> _changeThemeMode(ThemeMode? newMode) async {
     if (newMode == null) return;
     _prefs ??= await SharedPreferences.getInstance();
     String themeString;
-    if (newMode == ThemeMode.light) themeString = 'light';
-    else if (newMode == ThemeMode.dark) themeString = 'dark';
-    else themeString = 'system';
+    if (newMode == ThemeMode.light)
+      themeString = 'light';
+    else if (newMode == ThemeMode.dark)
+      themeString = 'dark';
+    else
+      themeString = 'system';
     await _prefs!.setString(SharedPrefKeys.appThemeMode, themeString);
     activeThemeMode.value = newMode;
   }
@@ -306,15 +483,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   void _navigateToLogin() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const LoginScreen()));
+    Navigator.push(
+        context, MaterialPageRoute(builder: (context) => const LoginScreen()));
   }
 
   void _navigateToSignUp() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
+    Navigator.push(
+        context, MaterialPageRoute(builder: (context) => const SignUpScreen()));
   }
 
   void _promptLogin(String action) {
-    if (mounted) { // بررسی mounted بودن قبل از نمایش SnackBar
+    if (mounted) {
+      // بررسی mounted بودن قبل از نمایش SnackBar
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Please login or sign up to $action.'),
@@ -348,28 +528,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(Icons.account_circle_outlined, size: 80, color: colorScheme.primary.withOpacity(0.7)),
+                Icon(Icons.account_circle_outlined,
+                    size: 80, color: colorScheme.primary.withOpacity(0.7)),
                 const SizedBox(height: 24),
                 Text(
                   'Welcome to Your Account',
                   textAlign: TextAlign.center,
-                  style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                  style: textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   'Login or create an account to manage your profile, subscriptions, and favorites.',
                   textAlign: TextAlign.center,
-                  style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+                  style: textTheme.bodyLarge
+                      ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
                 ),
                 const SizedBox(height: 40),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16)),
                   onPressed: _navigateToLogin,
                   child: const Text('Login'),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton(
-                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16)),
                   onPressed: _navigateToSignUp,
                   child: const Text('Sign Up'),
                 ),
@@ -383,9 +568,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     // UI برای کاربر لاگین کرده
     final String userName = userAuthProvider.username ?? "User";
     final String userEmail = userAuthProvider.email ?? "No email";
-    final sub_screen.SubscriptionTier currentUserSubscriptionTier = userAuthProvider.userSubscriptionTier;
-    final DateTime? userSubscriptionExpiryDate = userAuthProvider.userSubscriptionExpiryDate;
-    final String userCreditString = userAuthProvider.userCredit.toStringAsFixed(1);
+    final sub_screen.SubscriptionTier currentUserSubscriptionTier =
+        userAuthProvider.userSubscriptionTier;
+    final DateTime? userSubscriptionExpiryDate =
+        userAuthProvider.userSubscriptionExpiryDate;
+    final String userCreditString =
+        userAuthProvider.userCredit.toStringAsFixed(1);
 
     String subscriptionStatusText;
     Color subscriptionTextColor = colorScheme.onSurface.withOpacity(0.8);
@@ -393,16 +581,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (currentUserSubscriptionTier == sub_screen.SubscriptionTier.none ||
         userSubscriptionExpiryDate == null ||
         userSubscriptionExpiryDate.isBefore(DateTime.now())) {
-      subscriptionStatusText = userSubscriptionExpiryDate != null && userSubscriptionExpiryDate.isBefore(DateTime.now())
+      subscriptionStatusText = userSubscriptionExpiryDate != null &&
+              userSubscriptionExpiryDate.isBefore(DateTime.now())
           ? "Subscription Expired"
           : "No Active Subscription";
-      if (userSubscriptionExpiryDate != null && userSubscriptionExpiryDate.isBefore(DateTime.now())) {
+      if (userSubscriptionExpiryDate != null &&
+          userSubscriptionExpiryDate.isBefore(DateTime.now())) {
         subscriptionTextColor = colorScheme.error;
       }
     } else {
-      subscriptionStatusText = "${currentUserSubscriptionTier.name.toUpperCase()} Plan";
+      subscriptionStatusText =
+          "${currentUserSubscriptionTier.name.toUpperCase()} Plan";
       if (userSubscriptionExpiryDate != null) {
-        subscriptionStatusText += " (Expires: ${userSubscriptionExpiryDate.day}/${userSubscriptionExpiryDate.month}/${userSubscriptionExpiryDate.year})";
+        subscriptionStatusText +=
+            " (Expires: ${userSubscriptionExpiryDate.day}/${userSubscriptionExpiryDate.month}/${userSubscriptionExpiryDate.year})";
       }
       subscriptionTextColor = Colors.green.shade400;
     }
@@ -412,7 +604,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         onRefresh: () async {
           await _loadScreenSpecificData();
           if (mounted) {
-            await Provider.of<UserAuthProvider>(context, listen: false).reloadUserDataFromPrefs();
+            await Provider.of<UserAuthProvider>(context, listen: false)
+                .reloadUserDataFromPrefs();
           }
         },
         child: ListView(
@@ -426,19 +619,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   CircleAvatar(
                     radius: 60,
                     backgroundColor: colorScheme.surfaceVariant,
-                    backgroundImage: _profileImageFile != null && _profileImageFile!.existsSync()
+                    backgroundImage: _profileImageFile != null &&
+                            _profileImageFile!.existsSync()
                         ? FileImage(_profileImageFile!)
                         : null,
-                    child: _profileImageFile == null || !_profileImageFile!.existsSync()
-                        ? Icon(Icons.person, size: 70, color: colorScheme.onSurfaceVariant.withOpacity(0.5))
+                    child: _profileImageFile == null ||
+                            !_profileImageFile!.existsSync()
+                        ? Icon(Icons.person,
+                            size: 70,
+                            color:
+                                colorScheme.onSurfaceVariant.withOpacity(0.5))
                         : null,
                   ),
                   Positioned(
-                    right: 0, bottom: 0,
+                    right: 0,
+                    bottom: 0,
                     child: CircleAvatar(
-                      radius: 20, backgroundColor: colorScheme.primary,
+                      radius: 20,
+                      backgroundColor: colorScheme.primary,
                       child: IconButton(
-                        icon: Icon(Icons.camera_alt_outlined, color: theme.brightness == Brightness.dark ? Colors.black87: Colors.white , size: 20),
+                        icon: Icon(Icons.camera_alt_outlined,
+                            color: theme.brightness == Brightness.dark
+                                ? Colors.black87
+                                : Colors.white,
+                            size: 20),
                         onPressed: () => _showImageSourceActionSheet(context),
                         tooltip: "Change profile picture",
                       ),
@@ -448,29 +652,49 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Center(child: Text(userName, style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold))),
+            Center(
+                child: Text(userName,
+                    style: textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.bold))),
             const SizedBox(height: 4),
-            Center(child: Text(userEmail, style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)))),
+            Center(
+                child: Text(userEmail,
+                    style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface.withOpacity(0.7)))),
             const SizedBox(height: 24),
             _buildInfoCard(
               context,
               children: [
                 _buildInfoRow(context,
                     label: "Subscription",
-                    valueChild: Flexible(child: Text(subscriptionStatusText, style: textTheme.bodyLarge?.copyWith(color: subscriptionTextColor, fontWeight: FontWeight.w600), textAlign: TextAlign.right, overflow: TextOverflow.ellipsis, maxLines: 2)),
+                    valueChild: Flexible(
+                        child: Text(subscriptionStatusText,
+                            style: textTheme.bodyLarge?.copyWith(
+                                color: subscriptionTextColor,
+                                fontWeight: FontWeight.w600),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2)),
                     icon: Icons.card_membership_outlined,
                     trailingIcon: Icons.arrow_forward_ios_rounded,
                     isAction: true,
                     onTap: _manageSubscription),
                 _buildDivider(context),
-                _buildInfoRow(context, label: "Edit Information", icon: Icons.edit_outlined, isAction: true, onTap: _editProfile),
+                _buildInfoRow(context,
+                    label: "Edit Information",
+                    icon: Icons.edit_outlined,
+                    isAction: true,
+                    onTap: _editProfile),
                 _buildDivider(context),
                 _buildInfoRow(
                   context,
                   label: "App Theme",
                   icon: Icons.palette_outlined,
                   isAction: true,
-                  valueChild: Text(_themeModeToString(_currentAppTheme), style: textTheme.bodyLarge?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.w600)),
+                  valueChild: Text(_themeModeToString(_currentAppTheme),
+                      style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w600)),
                   onTap: () {
                     showDialog(
                       context: context,
@@ -478,9 +702,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         return SimpleDialog(
                           title: const Text('Select Theme'),
                           children: <Widget>[
-                            RadioListTile<ThemeMode>(title: const Text('Light'), value: ThemeMode.light, groupValue: _currentAppTheme, onChanged: (val) { _changeThemeMode(val); Navigator.of(context).pop(); }),
-                            RadioListTile<ThemeMode>(title: const Text('Dark'), value: ThemeMode.dark, groupValue: _currentAppTheme, onChanged: (val) { _changeThemeMode(val); Navigator.of(context).pop(); }),
-                            RadioListTile<ThemeMode>(title: const Text('System Default'), value: ThemeMode.system, groupValue: _currentAppTheme, onChanged: (val) { _changeThemeMode(val); Navigator.of(context).pop(); }),
+                            RadioListTile<ThemeMode>(
+                                title: const Text('Light'),
+                                value: ThemeMode.light,
+                                groupValue: _currentAppTheme,
+                                onChanged: (val) {
+                                  _changeThemeMode(val);
+                                  Navigator.of(context).pop();
+                                }),
+                            RadioListTile<ThemeMode>(
+                                title: const Text('Dark'),
+                                value: ThemeMode.dark,
+                                groupValue: _currentAppTheme,
+                                onChanged: (val) {
+                                  _changeThemeMode(val);
+                                  Navigator.of(context).pop();
+                                }),
+                            RadioListTile<ThemeMode>(
+                                title: const Text('System Default'),
+                                value: ThemeMode.system,
+                                groupValue: _currentAppTheme,
+                                onChanged: (val) {
+                                  _changeThemeMode(val);
+                                  Navigator.of(context).pop();
+                                }),
                           ],
                         );
                       },
@@ -493,16 +738,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             _buildInfoCard(
               context,
               children: [
-                _buildInfoRow(context, label: "Favorites", icon: Icons.favorite_border_outlined, trailingIcon: Icons.arrow_forward_ios_rounded, isAction: true, onTap: _navigateToFavorites),
+                _buildInfoRow(context,
+                    label: "Favorites",
+                    icon: Icons.favorite_border_outlined,
+                    trailingIcon: Icons.arrow_forward_ios_rounded,
+                    isAction: true,
+                    onTap: _navigateToFavorites),
                 _buildDivider(context),
                 _buildInfoRow(context,
                     label: "Credit",
                     valueChild: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text("$userCreditString Credits", style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold)),
+                        Text("$userCreditString Credits",
+                            style: textTheme.bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.bold)),
                         const SizedBox(width: 8),
-                        TextButton(onPressed: _addCredit, child: Text("Add", style: TextStyle(fontSize: 13, color: colorScheme.primary)), style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap))
+                        TextButton(
+                            onPressed: _addCredit,
+                            child: Text("Add",
+                                style: TextStyle(
+                                    fontSize: 13, color: colorScheme.primary)),
+                            style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap))
                       ],
                     ),
                     icon: Icons.account_balance_wallet_outlined),
@@ -513,10 +775,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    icon: Icon(Icons.headset_mic_outlined, color: colorScheme.primary),
+                    icon: Icon(Icons.headset_mic_outlined,
+                        color: colorScheme.primary),
                     label: const Text("Contact Support"),
                     onPressed: _contactSupport,
-                    style: OutlinedButton.styleFrom(foregroundColor: colorScheme.primary, side: BorderSide(color: colorScheme.primary.withOpacity(0.5)), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0))),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: colorScheme.primary,
+                        side: BorderSide(
+                            color: colorScheme.primary.withOpacity(0.5)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.0))),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -525,13 +794,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     icon: const Icon(Icons.delete_forever_outlined, size: 20),
                     label: const Text("Delete Account"),
                     onPressed: _deleteAccount,
-                    style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.errorContainer, foregroundColor: theme.colorScheme.onErrorContainer, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0))),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.colorScheme.errorContainer,
+                        foregroundColor: theme.colorScheme.onErrorContainer,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.0))),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            Center(child: TextButton(onPressed: _logout, child: Text("Logout", style: TextStyle(color: colorScheme.error)))),
+            Center(
+                child: TextButton(
+                    onPressed: _logout,
+                    child: Text("Logout",
+                        style: TextStyle(color: colorScheme.error)))),
             const SizedBox(height: 40),
           ],
         ),
@@ -539,7 +817,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildInfoCard(BuildContext context, {required List<Widget> children}) {
+  Widget _buildInfoCard(BuildContext context,
+      {required List<Widget> children}) {
     return Card(
       elevation: 1,
       margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -552,15 +831,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildInfoRow(
-      BuildContext context, {
-        required String label,
-        String? value,
-        Widget? valueChild,
-        IconData? icon,
-        IconData? trailingIcon,
-        bool isAction = false,
-        VoidCallback? onTap,
-      }) {
+    BuildContext context, {
+    required String label,
+    String? value,
+    Widget? valueChild,
+    IconData? icon,
+    IconData? trailingIcon,
+    bool isAction = false,
+    VoidCallback? onTap,
+  }) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
@@ -575,23 +854,39 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           child: Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, color: colorScheme.onSurface.withOpacity(0.7), size: 22),
+                Icon(icon,
+                    color: colorScheme.onSurface.withOpacity(0.7), size: 22),
                 const SizedBox(width: 18),
               ],
               Expanded(
                 flex: 2,
-                child: Text(label, style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurface, fontWeight: FontWeight.w500)),
+                child: Text(label,
+                    style: textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w500)),
               ),
               if (value != null)
                 Expanded(
                   flex: 3,
-                  child: Text(value, style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurface.withOpacity(0.8)), textAlign: TextAlign.right, overflow: TextOverflow.ellipsis, maxLines: 1),
+                  child: Text(value,
+                      style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onSurface.withOpacity(0.8)),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1),
                 ),
               if (valueChild != null)
-                Expanded(flex: 3, child: Align(alignment: Alignment.centerRight, child: valueChild)),
-              if (trailingIcon != null || (isAction && onTap != null) ) ...[
+                Expanded(
+                    flex: 3,
+                    child: Align(
+                        alignment: Alignment.centerRight, child: valueChild)),
+              if (trailingIcon != null || (isAction && onTap != null)) ...[
                 const SizedBox(width: 12),
-                Icon(trailingIcon ?? Icons.arrow_forward_ios_rounded, size: 16, color: isAction ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.5)),
+                Icon(trailingIcon ?? Icons.arrow_forward_ios_rounded,
+                    size: 16,
+                    color: isAction
+                        ? colorScheme.primary
+                        : colorScheme.onSurface.withOpacity(0.5)),
               ]
             ],
           ),

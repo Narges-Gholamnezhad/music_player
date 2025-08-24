@@ -19,6 +19,7 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   final _formKey = GlobalKey<FormState>();
+
   final TextEditingController _cardNumberController = TextEditingController();
   final TextEditingController _cvv2Controller = TextEditingController();
   final TextEditingController _expMonthController = TextEditingController();
@@ -26,20 +27,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final TextEditingController _dynamicPasswordController =
       TextEditingController();
   final TextEditingController _captchaController = TextEditingController();
-  String _captchaText = "۷۸۳۶۰";
+
   final Random _random = Random();
+  String _captchaText = "78360";
 
   @override
   void initState() {
     super.initState();
     _refreshCaptcha();
-  }
-
-  void _refreshCaptcha() {
-    setState(() {
-      _captchaText = (_random.nextInt(90000) + 10000).toString();
-    });
-    print("کد امنیتی رفرش شد. کد جدید: $_captchaText");
   }
 
   @override
@@ -53,12 +48,38 @@ class _PaymentScreenState extends State<PaymentScreen> {
     super.dispose();
   }
 
+  void _refreshCaptcha() {
+    setState(() {
+      _captchaText = (_random.nextInt(90000) + 10000).toString();
+    });
+  }
+
+  bool _luhnIsValid(String digitsOnly) {
+    int sum = 0;
+    bool alternate = false;
+    for (int i = digitsOnly.length - 1; i >= 0; i--) {
+      int n = digitsOnly.codeUnitAt(i) - 48;
+      if (alternate) {
+        n *= 2;
+        if (n > 9) n -= 9;
+      }
+      sum += n;
+      alternate = !alternate;
+    }
+    return sum % 10 == 0;
+  }
+
   void _processPayment() {
-    print("پردازش پرداخت برای ${widget.itemName} - مبلغ: ${widget.amount}");
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لطفاً خطاهای فرم را برطرف کنید.')),
+      );
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(
-              'پرداخت برای "${widget.itemName}" با موفقیت انجام شد! (شبیه‌سازی)')),
+          content:
+              Text('پرداخت برای "${widget.itemName}" با موفقیت انجام شد!')),
     );
     Navigator.of(context).pop(true);
   }
@@ -68,7 +89,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
     required String labelText,
     required String hintText,
     IconData? prefixIcon,
-    TextInputType keyboardType = TextInputType.number,
     List<TextInputFormatter>? inputFormatters,
     int? maxLength,
     String? Function(String?)? validator,
@@ -77,14 +97,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final theme = Theme.of(context);
     return TextFormField(
       controller: controller,
-      textAlign: (Localizations.localeOf(context).languageCode == 'fa' &&
-              keyboardType == TextInputType.number)
-          ? TextAlign.right
-          : TextAlign.left,
-      textDirection: (Localizations.localeOf(context).languageCode == 'fa' &&
-              keyboardType == TextInputType.number)
-          ? TextDirection.ltr
-          : TextDirection.ltr,
+      keyboardType: TextInputType.number,
+      inputFormatters: inputFormatters,
+      maxLength: maxLength,
+      validator: validator,
+      obscureText: obscureText,
+      textAlign: TextAlign.left,
+      textDirection: TextDirection.ltr,
       decoration: InputDecoration(
         labelText: labelText,
         hintText: hintText,
@@ -92,55 +111,61 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ? Icon(prefixIcon, color: Colors.grey[600])
             : null,
       ),
-      keyboardType: keyboardType,
-      inputFormatters: inputFormatters,
-      maxLength: maxLength,
-      validator: validator,
-      obscureText: obscureText,
       style: TextStyle(color: theme.colorScheme.onSurface),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(' پرداخت برای: ${widget.itemName}'),
+        title: Text('پرداخت برای: ${widget.itemName}'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               _buildTextField(
                 controller: _cardNumberController,
                 labelText: "شماره کارت",
-                hintText: "xxxx-xxxx-xxxx-xxxx",
+                hintText: "XXXXXXXXXXXXXXXX",
                 prefixIcon: Icons.credit_card,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(16)
+                  LengthLimitingTextInputFormatter(16),
                 ],
-                validator: (value) =>
-                    (value?.isEmpty ?? true) ? 'شماره کارت الزامی است' : null,
+                validator: (value) {
+                  final v = (value ?? '').trim();
+                  if (v.isEmpty) return 'شماره کارت الزامی است';
+                  if (v.length != 16) return 'شماره کارت باید ۱۶ رقمی باشد';
+                  if (!_luhnIsValid(v)) return 'شماره کارت نامعتبر است';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _cvv2Controller,
                 labelText: "CVV2",
-                hintText: "xxx",
+                hintText: "XXX یا XXXX",
                 prefixIcon: Icons.lock_outline,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(4)
+                  LengthLimitingTextInputFormatter(4),
                 ],
-                validator: (value) =>
-                    (value?.isEmpty ?? true) ? 'CVV2 الزامی است' : null,
+                validator: (value) {
+                  final v = (value ?? '').trim();
+                  if (v.isEmpty) return 'CVV2 الزامی است';
+                  if (v.length < 3 || v.length > 4)
+                    return 'CVV2 باید ۳ یا ۴ رقم باشد';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               Row(
@@ -153,13 +178,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       prefixIcon: Icons.calendar_today_outlined,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(2)
+                        LengthLimitingTextInputFormatter(2),
                       ],
                       validator: (value) {
-                        if (value?.isEmpty ?? true) return 'الزامی';
-                        final month = int.tryParse(value!);
-                        if (month == null || month < 1 || month > 12)
-                          return 'نامعتبر';
+                        final v = (value ?? '').trim();
+                        if (v.isEmpty) return 'ماه الزامی است';
+                        if (v.length != 2) return 'ماه باید دو رقمی باشد';
+                        final m = int.tryParse(v);
+                        if (m == null || m < 1 || m > 12)
+                          return 'ماه نامعتبر (۱ تا ۱۲)';
                         return null;
                       },
                     ),
@@ -173,10 +200,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       prefixIcon: Icons.calendar_today_outlined,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(2)
+                        LengthLimitingTextInputFormatter(2),
                       ],
                       validator: (value) {
-                        if (value?.isEmpty ?? true) return 'الزامی';
+                        final v = (value ?? '').trim();
+                        if (v.isEmpty) return 'سال الزامی است';
+                        if (v.length != 2) return 'سال باید دو رقمی باشد';
                         return null;
                       },
                     ),
@@ -186,25 +215,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _dynamicPasswordController,
-                labelText: "رمز پویا (OTP)",
-                hintText: "رمز پویا را وارد کنید",
+                labelText: "رمز پویا",
+                hintText: "6-8",
                 prefixIcon: Icons.password_outlined,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(8)
+                  LengthLimitingTextInputFormatter(8),
                 ],
                 obscureText: true,
-                validator: (value) =>
-                    (value?.isEmpty ?? true) ? 'رمز پویا الزامی است' : null,
+                validator: (value) {
+                  final v = (value ?? '').trim();
+                  if (v.isEmpty) return 'رمز پویا الزامی است';
+                  if (v.length < 6 || v.length > 8)
+                    return 'باید ۶ تا ۸ رقم باشد';
+                  return null;
+                },
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {
-                    print("درخواست رمز پویا");
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text(
-                            'رمز پویا به شماره شما ارسال شد (شبیه‌سازی)')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('رمز پویا به شماره شما ارسال شد')),
+                    );
                   },
                   child: const Text("دریافت رمز پویا"),
                 ),
@@ -220,11 +254,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       labelText: "کد امنیتی",
                       hintText: "کد را وارد کنید",
                       prefixIcon: Icons.shield_outlined,
-                      keyboardType: TextInputType.text,
-                      inputFormatters: [LengthLimitingTextInputFormatter(5)],
-                      validator: (value) => (value?.isEmpty ?? true)
-                          ? 'کد امنیتی الزامی است'
-                          : null,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5),
+                      ],
+                      validator: (value) {
+                        final v = (value ?? '').trim();
+                        if (v.isEmpty) return 'کد امنیتی الزامی است';
+                        if (v != _captchaText) return 'کد امنیتی نادرست است';
+                        return null;
+                      },
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -233,17 +272,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10.0),
                       decoration: BoxDecoration(
-                          color: Colors.grey[700],
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.grey[600]!)),
+                        color: Colors.grey[700],
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: Colors.grey[600]!),
+                      ),
                       child: Center(
                         child: Text(
                           _captchaText,
                           style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 3,
-                              color: Colors.white),
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 3,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -252,7 +293,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     icon: const Icon(Icons.refresh),
                     onPressed: _refreshCaptcha,
                     tooltip: "بارگذاری مجدد کد",
-                  )
+                  ),
                 ],
               ),
               const SizedBox(height: 32),
@@ -275,7 +316,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: Colors.grey[600]),
                 ),
-              )
+              ),
             ],
           ),
         ),

@@ -2,26 +2,35 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'shared_pref_keys.dart';
-import 'subscription_screen.dart' as sub_screen; // <--- اطمینان از وجود این import
+import 'subscription_screen.dart'
+    as sub_screen; // <--- اطمینان از وجود این import
 
 class UserAuthProvider with ChangeNotifier {
   bool _isLoggedIn = false;
   String? _username;
   String? _email;
   String? _userToken;
-  sub_screen.SubscriptionTier _userSubscriptionTier = sub_screen.SubscriptionTier.none; // مقدار اولیه
+  sub_screen.SubscriptionTier _userSubscriptionTier =
+      sub_screen.SubscriptionTier.none; // مقدار اولیه
   DateTime? _userSubscriptionExpiryDate;
   double _userCredit = 0.0; // مقدار اولیه
 
   bool _isLoading = true;
 
   bool get isLoggedIn => _isLoggedIn;
+
   String? get username => _username;
+
   String? get email => _email;
+
   String? get userToken => _userToken;
+
   sub_screen.SubscriptionTier get userSubscriptionTier => _userSubscriptionTier;
+
   DateTime? get userSubscriptionExpiryDate => _userSubscriptionExpiryDate;
+
   double get userCredit => _userCredit;
+
   bool get isLoading => _isLoading;
 
   UserAuthProvider() {
@@ -43,8 +52,8 @@ class UserAuthProvider with ChangeNotifier {
       _email = prefs.getString(SharedPrefKeys.userProfileEmail);
       _userToken = prefs.getString(SharedPrefKeys.userToken);
       _userSubscriptionTier = sub_screen.SubscriptionTier.values[
-      prefs.getInt(SharedPrefKeys.userSubscriptionTier) ??
-          sub_screen.SubscriptionTier.none.index];
+          prefs.getInt(SharedPrefKeys.userSubscriptionTier) ??
+              sub_screen.SubscriptionTier.none.index];
       final expiryMillis = prefs.getInt(SharedPrefKeys.userSubscriptionExpiry);
       _userSubscriptionExpiryDate = expiryMillis != null
           ? DateTime.fromMillisecondsSinceEpoch(expiryMillis)
@@ -147,5 +156,14 @@ class UserAuthProvider with ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  Future<void> updateUserCredit(double newCredit) async {
+    final prefs = await SharedPreferences.getInstance();
+    _userCredit = newCredit; // Update the credit in the app's state
+    await prefs.setDouble(
+        SharedPrefKeys.userCredit, newCredit); // Save it for persistence
+    notifyListeners(); // Notify all listening widgets to rebuild
+    print("UserAuthProvider: Credit updated to $_userCredit and UI notified.");
   }
 }

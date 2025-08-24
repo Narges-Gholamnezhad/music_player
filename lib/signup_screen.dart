@@ -1,8 +1,11 @@
 // lib/signup_screen.dart
+import 'socket_service.dart';
+import 'dart:async'; // برای استفاده از Completer
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart'; // <--- اضافه شد
 import 'login_screen.dart';
+
 // import 'main_tabs_screen.dart'; // دیگر مستقیما به اینجا navigate نمی‌کنیم
 import 'user_auth_provider.dart'; // <--- اضافه شد
 
@@ -18,13 +21,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    _socketService.connect(); // به سرور وصل شو
+  }
+
+  @override
   void dispose() {
+    // _socketService.disconnect(); // ما فعلا قطع نمی‌کنیم تا بین صفحات اتصال حفظ شود
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -45,58 +56,91 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   Future<void> _signUp() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-      String username = _usernameController.text;
-      String email = _emailController.text;
-      // String password = _passwordController.text;
+    // بررسی اعتبار فرم
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    setState(() => _isLoading = true);
 
-      print('SignUpScreen: Form is valid. Attempting to sign up...');
-      print('Username: $username, Email: $email');
-
-      await Future.delayed(const Duration(seconds: 1)); // کاهش تاخیر برای تست سریعتر
-
-      bool signupSuccess = true; // برای تست، فرض می‌کنیم ثبت نام همیشه موفق است
-
-      if (mounted) {
-        if (signupSuccess) {
-          try {
-            // TODO: توکن واقعی باید از بک‌اند دریافت شود
-            String simulatedToken = "simulated_token_signup_${username.hashCode}";
-            await Provider.of<UserAuthProvider>(context, listen: false)
-                .signUpAndLogin(username, email, simulatedToken);
-
-            if (mounted) { // بررسی مجدد mounted بودن
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Signup successful! Welcome, $username!')),
-              );
-              Navigator.of(context).pop(); // <--- تغییر: فقط pop می‌کنیم
-            }
-          } catch (e) {
-            print('SignUpScreen: Error during provider signUpAndLogin: $e');
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('An error occurred during sign up: $e')),
-              );
-            }
-          }
-        } else {
-          if (mounted) { // اطمینان از mounted بودن
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Signup failed. Username or email might be taken, or server error.')),
-            );
-          }
-        }
-        if (mounted) { // بررسی مجدد mounted بودن
-          setState(() => _isLoading = false);
-        }
-      }
-    } else {
-      print('SignUpScreen: Form is invalid.');
+    // اتصال به سرور (اگر وصل نیست)
+    bool isConnected = await _socketService.connect();
+    if (!isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please correct the errors in the form.')),
+          const SnackBar(content: Text('Cannot connect to the server.')),
         );
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    String username = _usernameController.text.trim();
+    String email = _emailController.text.trim();
+    String password = _passwordController.text;
+
+    // ساخت دستور برای ارسال به سرور
+    String command = "REGISTER::$username::$email::$password";
+
+    // یک listener موقت برای گرفتن اولین پاسخ از سرور
+    final completer = Completer<String>();
+    StreamSubscription? subscription;
+    subscription = _socketService.responses.listen((response) {
+      // مطمئن می‌شویم که listener فقط یک بار پاسخ را دریافت کند
+      if (!completer.isCompleted) {
+        subscription?.cancel(); // بعد از دریافت پاسخ، listener را غیرفعال کن
+        completer.complete(response);
+      }
+    });
+
+    // ارسال دستور
+    _socketService.sendCommand(command);
+
+    try {
+      // منتظر پاسخ از سرور برای حداکثر 5 ثانیه
+      final serverResponse =
+          await completer.future.timeout(const Duration(seconds: 5));
+
+      if (serverResponse == "REGISTER_SUCCESS") {
+        // در سناریوی واقعی، سرور باید توکن را برگرداند
+        String simulatedToken = "real-token-from-server-would-go-here";
+        await Provider.of<UserAuthProvider>(context, listen: false)
+            .signUpAndLogin(username, email, simulatedToken);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Welcome, $username! Signup was successful.')),
+          );
+          // بازگشت به صفحه پروفایل که حالا حالت لاگین شده را نشان می‌دهد
+          Navigator.of(context).pop();
+        }
+      } else {
+        // نمایش خطای دریافت شده از سرور
+        final errorMessage =
+            serverResponse.split("::").last.replaceAll("_", " ");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Signup Failed: $errorMessage')),
+          );
+        }
+      }
+    } on TimeoutException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Server did not respond in time.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('An error occurred: $e')),
+        );
+      }
+    } finally {
+      // لغو listener در صورت بروز خطا یا تایم‌اوت
+      subscription?.cancel();
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -128,10 +172,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
     print('SignUpScreen: Sign Up with Google pressed (TODO)');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign up with Google is not yet implemented.')),
+        const SnackBar(
+            content: Text('Sign up with Google is not yet implemented.')),
       );
     }
   }
+
+  final SocketService _socketService =
+      SocketService(); // <-- این خط را اضافه کنید
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +198,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding:
-            const EdgeInsets.symmetric(horizontal: 32.0, vertical: 20.0),
+                const EdgeInsets.symmetric(horizontal: 32.0, vertical: 20.0),
             child: Form(
               key: _formKey,
               autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -200,7 +248,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         return 'Please enter your email';
                       }
                       if (!RegExp(
-                          r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+")
+                              r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+")
                           .hasMatch(value)) {
                         return 'Please enter a valid email address';
                       }
@@ -215,7 +263,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     decoration: InputDecoration(
                       hintText: 'Password',
                       prefixIcon:
-                      Icon(Icons.lock_outline, color: iconColor, size: 20),
+                          Icon(Icons.lock_outline, color: iconColor, size: 20),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
@@ -237,7 +285,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     decoration: InputDecoration(
                       hintText: 'Confirm Password',
                       prefixIcon:
-                      Icon(Icons.lock_outline, color: iconColor, size: 20),
+                          Icon(Icons.lock_outline, color: iconColor, size: 20),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible
@@ -263,15 +311,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : ElevatedButton(
-                    style: theme.elevatedButtonTheme.style?.copyWith(
-                      backgroundColor:
-                      MaterialStateProperty.all(colorScheme.primary),
-                      foregroundColor:
-                      MaterialStateProperty.all(colorScheme.onPrimary),
-                    ),
-                    onPressed: _signUp,
-                    child: const Text('Sign up'),
-                  ),
+                          style: theme.elevatedButtonTheme.style?.copyWith(
+                            backgroundColor:
+                                MaterialStateProperty.all(colorScheme.primary),
+                            foregroundColor: MaterialStateProperty.all(
+                                colorScheme.onPrimary),
+                          ),
+                          onPressed: _signUp,
+                          child: const Text('Sign up'),
+                        ),
                   const SizedBox(height: 24.0),
                   Row(
                     children: <Widget>[
@@ -319,16 +367,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         onTap: () {
                           // اگر از صفحه لاگین به اینجا آمده‌ایم، pop می‌کنیم
                           // اگر مستقیما از UserProfileScreen به SignUp آمده‌ایم، باز هم pop می‌کنیم
-                          if (Navigator.canPop(context)) {
-                            Navigator.pop(context);
-                          } else {
-                            // این حالت نباید زیاد پیش بیاید در سناریوی جدید
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => const LoginScreen()),
-                            );
-                          }
+
+                          // این حالت نباید زیاد پیش بیاید در سناریوی جدید
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => const LoginScreen()),
+                          );
                         },
                         child: Text(
                           'Login',

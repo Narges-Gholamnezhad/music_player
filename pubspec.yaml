@@ -24,6 +24,7 @@ dependencies:
   permission_handler: ^11.3.1 # <--- اضافه شد (نسخه رو از pub.dev چک کنید)
   # provider: ^6.1.2          # <--- (اختیاری) برای State Management - نسخه رو چک کنید
   # flutter_inappwebview: ^6.0.0 # <--- (اختیاری) برای InAppWebView - نسخه رو چک کنید
+  socket_io_client: ^2.0.0
 
 
 # ... بقیه فایل ...
