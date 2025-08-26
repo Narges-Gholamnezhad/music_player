@@ -90,4 +90,33 @@ class SocketService {
   }
 
   SocketService._internal();
+
+  Future<String> sendCommandWithResponse(String command, String responsePrefix) async {
+    await connect(); // Ensure we are connected
+
+    final completer = Completer<String>();
+    StreamSubscription? subscription;
+
+    subscription = responses.listen((response) {
+      if (response.startsWith(responsePrefix)) {
+        if (!completer.isCompleted) {
+          subscription?.cancel();
+          completer.complete(response);
+        }
+      }
+    });
+
+    sendCommand(command);
+
+    try {
+      // Wait up to 5 seconds for the specific response
+      return await completer.future.timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      subscription?.cancel();
+      return "${responsePrefix}FAILED::TIMEOUT"; // Return a custom timeout error
+    } catch (e) {
+      subscription?.cancel();
+      return "${responsePrefix}FAILED::CLIENT_ERROR";
+    }
+  }
 }

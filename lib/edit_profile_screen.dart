@@ -1,6 +1,10 @@
 // lib/edit_profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
+import 'user_auth_provider.dart';
+import 'socket_service.dart';
 
 // کلیدهای SharedPreferences برای نام و ایمیل
 // **مهم:** این مقادیر باید دقیقاً با مقادیر مشابه در user_profile_screen.dart یکسان باشند
@@ -60,56 +64,70 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _saveProfileChanges() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    setState(() => _isLoading = true);
 
-      bool passwordChanged = _newPasswordController.text.isNotEmpty;
-      bool canSaveChanges = true;
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    final String? username = userAuthProvider.username;
+    if (username == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
 
-      if (passwordChanged) {
-        if (_currentPasswordController.text.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please enter your current password to set a new one.'))
-            );
-          }
-          canSaveChanges = false;
-        }
-        // TODO: اعتبارسنجی رمز عبور فعلی با مقدار ذخیره شده (ایده‌آل در بک‌اند).
-        // در فرانت‌اند، بدون دسترسی به رمز فعلی (که نباید ذخیره شود)، این اعتبارسنجی ممکن نیست.
-        // این بخش باید توسط سرور انجام شود.
-        // مثال: bool isCurrentPasswordValid = await AuthService.verifyPassword(_currentPasswordController.text);
-        // if (!isCurrentPasswordValid) {
-        //   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current password is incorrect.')));
-        //   canSaveChanges = false;
-        // }
+    final socketService = SocketService();
+    bool profileUpdateSuccess = false;
+    bool passwordChangeSuccess = true; // Assume success if not attempted
+    String finalErrorMessage = "";
+
+    // --- PART 1: Update Name and Email ---
+    final String newFullName = _nameController.text.trim();
+    final String newEmail = _emailController.text.trim();
+
+    String updateProfileCommand = "UPDATE_PROFILE::$username::$newFullName::$newEmail";
+    String serverResponseProfile = await socketService.sendCommandWithResponse(updateProfileCommand, "UPDATE_");
+
+    if (serverResponseProfile.startsWith("UPDATE_SUCCESS")) {
+      profileUpdateSuccess = true;
+      final parts = serverResponseProfile.split("::");
+      if (parts.length == 3) {
+        await userAuthProvider.updateProfile(parts[1], parts[2]);
       }
+    } else {
+      finalErrorMessage = serverResponseProfile.split("::").last.replaceAll("_", " ");
+    }
 
-      if (canSaveChanges) {
-        _prefs ??= await SharedPreferences.getInstance();
+    // --- PART 2: Change Password (only if a new password was entered) ---
+    final String newPassword = _newPasswordController.text;
+    if (newPassword.isNotEmpty) {
+      passwordChangeSuccess = false; // Now we must succeed
+      final String oldPassword = _currentPasswordController.text;
 
-        await _prefs?.setString(prefUserName, _nameController.text);
-        await _prefs?.setString(prefUserEmail, _emailController.text);
-        print("EditProfileScreen: Saved new name: ${_nameController.text}, email: ${_emailController.text}");
+      String changePasswordCommand = "CHANGE_PASSWORD::$newFullName::$oldPassword::$newPassword";
+      // NOTE: We use newFullName here because the username might have been changed in Part 1.
+      String serverResponsePassword = await socketService.sendCommandWithResponse(changePasswordCommand, "CHANGE_PASSWORD_");
 
-        if (passwordChanged) {
-          // TODO: هش کردن و ذخیره رمز عبور جدید باید در بک‌اند انجام شود.
-          // فرانت‌اند فقط رمز جدید را به صورت امن (HTTPS) به سرور ارسال می‌کند.
-          // مثال: await AuthService.changePassword(_newPasswordController.text);
-          print("Password change requested. New password (raw, for demo): ${_newPasswordController.text}");
-          // در یک برنامه واقعی، رمز عبور خام هرگز نباید چاپ یا به راحتی ذخیره شود.
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile updated successfully!')),
-          );
-          Navigator.of(context).pop(true); // برگرداندن true برای نشان دادن موفقیت و رفرش صفحه پروفایل
-        }
+      if (serverResponsePassword == "CHANGE_PASSWORD_SUCCESS") {
+        passwordChangeSuccess = true;
+      } else {
+        finalErrorMessage = serverResponsePassword.split("::").last.replaceAll("_", " ");
       }
-      if (mounted) {
-        setState(() => _isLoading = false);
+    }
+
+    // --- PART 3: Show Final Result ---
+    if (mounted) {
+      if (profileUpdateSuccess && passwordChangeSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated successfully!')),
+        );
+        Navigator.of(context).pop(true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Update failed: $finalErrorMessage')),
+        );
       }
+      setState(() => _isLoading = false);
     }
   }
 

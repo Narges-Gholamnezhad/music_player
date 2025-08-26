@@ -437,22 +437,69 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   void _deleteAccount() {
-    final userAuthProvider =
-        Provider.of<UserAuthProvider>(context, listen: false);
-    if (!userAuthProvider.isLoggedIn) {
+    final userAuthProvider = Provider.of<UserAuthProvider>(context, listen: false);
+    if (!userAuthProvider.isLoggedIn || userAuthProvider.username == null) {
       _promptLogin("delete your account");
       return;
     }
-    _showActionDialog("Delete Account",
-        "Are you sure you want to delete your account? This action cannot be undone and all your data will be lost.",
-        onConfirm: () {
-      // TODO: پیاده‌سازی واقعی حذف حساب (ارتباط با بک‌اند)
-      print(
-          "UserProfileScreen: Delete account confirmed (TODO: implement actual deletion)");
-      // پس از حذف موفق از سرور، کاربر را logout کنید
-      Provider.of<UserAuthProvider>(context, listen: false).logout();
-      // UserProfileScreen خود به خود رفرش شده و حالت لاگین نشده را نشان می‌دهد
-    }, confirmText: "Yes, Delete");
+
+    // Show a confirmation dialog first
+    _showActionDialog(
+      "Delete Account",
+      "Are you sure you want to delete your account? This action cannot be undone and all your data will be lost.",
+      confirmText: "Yes, Delete",
+      onConfirm: () async {
+        // This code runs only if the user confirms
+        final String usernameToDelete = userAuthProvider.username!;
+        final socketService = SocketService();
+        await socketService.connect();
+
+        final completer = Completer<String>();
+        StreamSubscription? subscription;
+
+        subscription = socketService.responses.listen((response) {
+          if (response.startsWith("DELETE_")) {
+            if (!completer.isCompleted) {
+              subscription?.cancel();
+              completer.complete(response);
+            }
+          }
+        });
+
+        socketService.sendCommand("DELETE_ACCOUNT::$usernameToDelete");
+
+        try {
+          final serverResponse = await completer.future.timeout(const Duration(seconds: 5));
+
+          if (serverResponse == "DELETE_SUCCESS") {
+            // IMPORTANT: The server has deleted the user.
+            // Now we must log the user out of the app.
+            await userAuthProvider.logout();
+
+            if(mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Account deleted successfully."))
+              );
+            }
+          } else {
+            final errorMessage = serverResponse.split("::").last.replaceAll("_", " ");
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("Failed to delete account: $errorMessage")),
+              );
+            }
+          }
+        } on TimeoutException {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Server did not respond in time.')),
+            );
+          }
+        } finally {
+          subscription?.cancel();
+        }
+      },
+    );
   }
 
   void _logout() {

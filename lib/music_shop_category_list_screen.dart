@@ -21,6 +21,7 @@ class _MusicShopCategoryListScreenState
   List<Song> _filteredCategorySongs = []; // لیست فیلتر شده برای نمایش
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true; // This will control our loading circle
+  String _currentSortCriteria = 'default';
 
   @override
   void initState() {
@@ -62,7 +63,7 @@ class _MusicShopCategoryListScreenState
         for (final line in lines) {
           if (line.startsWith("SONG_DATA::")) {
             final parts = line.split("::");
-            if (parts.length >= 8) {
+            if (parts.length >= 9) {
               try {
                 final song = Song(
                   title: parts[1],
@@ -75,6 +76,7 @@ class _MusicShopCategoryListScreenState
                         (e) => e.name == parts[7].trim(), // Use trim() for safety
                     orElse: () => SongAccessTier.free,
                   ),
+                  averageRating: double.tryParse(parts[8]) ?? 0.0,
                 );
                 receivedSongs.add(song);
               } catch (e) { print("Error parsing song data: $e"); }
@@ -95,7 +97,7 @@ class _MusicShopCategoryListScreenState
       },
     );
 
-    socketService.sendCommand("GET_SONGS_BY_CATEGORY::${widget.categoryName}");
+    socketService.sendCommand("GET_SONGS_BY_CATEGORY::${widget.categoryName}::$_currentSortCriteria");
 
     try {
       // Wait for 10 seconds. This should be more than enough time.
@@ -138,6 +140,36 @@ class _MusicShopCategoryListScreenState
     }
   }
 
+  Future<void> _showSortDialog() async {
+    final String? selectedCriteria = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return SimpleDialog(
+          title: const Text('Sort by'),
+          children: <Widget>[
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'rating_desc'),
+              child: const Text('Rating (High to Low)'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'rating_asc'),
+              child: const Text('Rating (Low to High)'),
+            ),
+            // We can add more options like 'price_desc' here in the future
+          ],
+        );
+      },
+    );
+
+    // If the user chose a new sort option...
+    if (selectedCriteria != null && selectedCriteria != _currentSortCriteria) {
+      setState(() {
+        _currentSortCriteria = selectedCriteria; // ...update our state...
+      });
+      _loadSongsForCategory(); // ...and reload the songs from the server with the new sorting.
+    }
+  }
+
   // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
   @override
@@ -149,6 +181,13 @@ class _MusicShopCategoryListScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.categoryName),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sort),
+            tooltip: "Sort Songs",
+            onPressed: _showSortDialog, // This will call a new method we are about to create
+          ),
+        ],
       ),
       body: Column(
         children: [
