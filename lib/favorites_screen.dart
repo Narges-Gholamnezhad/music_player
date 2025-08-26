@@ -2,10 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart'; // برای QueryArtworkWidget
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'song_model.dart';
 import 'song_detail_screen.dart';
 import 'shared_pref_keys.dart';
 import 'main_tabs_screen.dart'; // برای دسترسی به _showSortOptionsDialog اگر لازم باشد
+import 'user_auth_provider.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
@@ -36,46 +38,34 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   Future<void> _loadFavoriteSongs() async {
-    if (!mounted || _prefs == null) {
-      if (_prefs == null)
-        print(
-            "FavoritesScreen: SharedPreferences not initialized in _loadFavoriteSongs.");
-      if (mounted) setState(() => _isLoading = false);
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      if(mounted) setState(() {
+        _favoriteSongs = [];
+        _isLoading = false;
+      });
       return;
     }
-    setState(() => _isLoading = true);
-    try {
-      final List<String> favoriteDataStrings =
-          _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
 
-      List<Song> loadedSongs = [];
-      for (String dataString in favoriteDataStrings) {
-        try {
-          final song = Song.fromDataString(dataString);
-          // dateAdded باید از fromDataString خوانده شده باشد
-          await song.loadLyrics(_prefs!);
-          loadedSongs.add(song);
-        } catch (e) {
-          print(
-              "FavoritesScreen: Error parsing or loading lyrics for favorite song data: $dataString, Error: $e");
-        }
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    _prefs ??= await SharedPreferences.getInstance();
+    final List<String> favoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataListForUser(username)) ?? [];
+
+    List<Song> loadedSongs = [];
+    for (String dataString in favoriteDataStrings) {
+      try {
+        loadedSongs.add(Song.fromDataString(dataString));
+      } catch (e) {
+        print("FavoritesScreen: Error parsing song data: $e");
       }
-      if (mounted) {
-        _favoriteSongs = loadedSongs;
-        _sortFavoriteSongsInternal(); // مرتب‌سازی اولیه بر اساس _currentSortCriteria
-        setState(() {
-          _isLoading = false;
-        });
-      }
-      print("FavoritesScreen: Loaded ${_favoriteSongs.length} favorite songs.");
-    } catch (e) {
-      print("FavoritesScreen: Error loading favorites: $e");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not load favorites.')),
-        );
-      }
+    }
+
+    if (mounted) {
+      _favoriteSongs = loadedSongs;
+      _sortFavoriteSongsInternal();
+      setState(() => _isLoading = false);
     }
   }
 
@@ -144,50 +134,33 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   Future<void> _removeFromFavorites(Song songToRemove) async {
-    if (_prefs == null) return;
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) return;
 
-    List<String> favoriteDataStrings =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
-    List<String> favoriteIdentifiers =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
+    _prefs ??= await SharedPreferences.getInstance();
+
+    List<String> favoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataListForUser(username)) ?? [];
+    List<String> favoriteIdentifiers = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ?? [];
 
     final String songIdentifierToRemove = songToRemove.uniqueIdentifier;
 
-    bool removedFromIdentifiers =
-        favoriteIdentifiers.remove(songIdentifierToRemove);
-    int initialDataLength = favoriteDataStrings.length;
+    favoriteIdentifiers.remove(songIdentifierToRemove);
     favoriteDataStrings.removeWhere((dataString) {
       try {
-        final song = Song.fromDataString(dataString);
-        return song.uniqueIdentifier == songIdentifierToRemove;
-      } catch (e) {
-        return false;
-      }
+        return Song.fromDataString(dataString).uniqueIdentifier == songIdentifierToRemove;
+      } catch (e) { return false; }
     });
-    bool removedFromData = favoriteDataStrings.length < initialDataLength;
 
-    if (removedFromIdentifiers || removedFromData) {
-      await _prefs!.setStringList(
-          SharedPrefKeys.favoriteSongsDataList, favoriteDataStrings);
-      await _prefs!.setStringList(
-          SharedPrefKeys.favoriteSongIdentifiers, favoriteIdentifiers);
-      await _prefs!
-          .remove(SharedPrefKeys.lyricsDataKeyForSong(songIdentifierToRemove));
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataListForUser(username), favoriteDataStrings);
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username), favoriteIdentifiers);
 
-      if (mounted) {
-        setState(() {
-          _favoriteSongs.removeWhere(
-              (song) => song.uniqueIdentifier == songIdentifierToRemove);
-          // نیازی به سورت مجدد نیست چون فقط یک آیتم حذف شده و ترتیب بقیه حفظ می‌شود
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('"${songToRemove.title}" removed from favorites.')),
-        );
-      }
-    } else {
-      print(
-          "FavoritesScreen: Song '${songToRemove.title}' not found in favorites to remove.");
+    if (mounted) {
+      setState(() {
+        _favoriteSongs.removeWhere((song) => song.uniqueIdentifier == songIdentifierToRemove);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${songToRemove.title}" removed from favorites.')),
+      );
     }
   }
 

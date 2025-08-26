@@ -1,4 +1,5 @@
 // lib/music_shop_song_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,7 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:device_info_plus/device_info_plus.dart'; // برای بررسی نسخه اندروید
+import 'package:provider/provider.dart';
 
 import 'song_model.dart';
 import 'payment_screen.dart';
@@ -14,6 +15,7 @@ import 'subscription_screen.dart' as sub_screen;
 import 'song_detail_screen.dart' as local_player;
 import 'main_tabs_screen.dart';
 import 'shared_pref_keys.dart';
+import 'user_auth_provider.dart';
 import 'dart:math';
 
 class Comment {
@@ -93,10 +95,15 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _samplePlayer.dispose();
+    _commentController.dispose();
+    super.dispose();
+  }
+
   Future<void> _initScreenDetails() async {
     setState(() => _isScreenLoading = true);
-    _prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
     await _loadUserSubscriptionAndCredit();
     await _checkIfFavorite();
     await _checkIfSongDownloadedAndUpdateLyrics();
@@ -139,67 +146,100 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
   }
 
   Future<void> _checkIfFavorite() async {
+    final username =
+        Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      if (mounted) setState(() => _isFavorite = false);
+      return;
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
-    final ids =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
-    if (mounted)
+    final ids = _prefs!.getStringList(
+            SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ??
+        [];
+    if (mounted) {
       setState(
           () => _isFavorite = ids.contains(widget.shopSong.uniqueIdentifier));
+    }
   }
 
   Future<void> _toggleFavorite() async {
+    final username =
+        Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to add favorites.')));
+      return;
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
     final songToFavorite = widget.shopSong;
-    List<String> favData =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
-    List<String> favIds =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
-    final uniqueId = songToFavorite.uniqueIdentifier;
-    bool isFav = favIds.contains(uniqueId);
-    String msg;
 
-    if (!isFav) {
-      favIds.add(uniqueId);
-      final songWithDetails = songToFavorite.copyWith(
-          dateAdded: DateTime.now(),
-          lyrics: _displayLyrics ?? songToFavorite.lyrics,
-          shopUniqueIdentifierBasis: songToFavorite.uniqueIdentifier);
-      favData.add(songWithDetails.toDataString());
-      msg = '"${songToFavorite.title}" added to favorites.';
-      if (mounted) setState(() => _isFavorite = true);
-    } else {
+    List<String> favDataStrings = _prefs!.getStringList(
+            SharedPrefKeys.favoriteSongsDataListForUser(username)) ??
+        [];
+    List<String> favIds = _prefs!.getStringList(
+            SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ??
+        [];
+
+    final uniqueId = songToFavorite.uniqueIdentifier;
+    final bool isCurrentlyFavorite = favIds.contains(uniqueId);
+    String message;
+
+    if (isCurrentlyFavorite) {
       favIds.remove(uniqueId);
-      favData.removeWhere((s) {
+      favDataStrings.removeWhere((dataStr) {
         try {
-          return Song.fromDataString(s).uniqueIdentifier == uniqueId;
-        } catch (_) {
+          return Song.fromDataString(dataStr).uniqueIdentifier == uniqueId;
+        } catch (e) {
           return false;
         }
       });
-      msg = '"${songToFavorite.title}" removed from favorites.';
+      message = '"${songToFavorite.title}" removed from favorites.';
       if (mounted) setState(() => _isFavorite = false);
+    } else {
+      favIds.add(uniqueId);
+      final songForFavorites =
+          songToFavorite.copyWith(dateAdded: DateTime.now());
+      favDataStrings.add(songForFavorites.toDataString());
+      message = '"${songToFavorite.title}" added to favorites.';
+      if (mounted) setState(() => _isFavorite = true);
     }
-    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiers, favIds);
-    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataList, favData);
-    if (mounted)
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    homeScreenKey.currentState?.refreshDataOnReturn();
+
+    await _prefs!.setStringList(
+        SharedPrefKeys.favoriteSongIdentifiersForUser(username), favIds);
+    await _prefs!.setStringList(
+        SharedPrefKeys.favoriteSongsDataListForUser(username), favDataStrings);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _checkIfSongDownloadedAndUpdateLyrics() async {
+    final username =
+        Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null) {
+      if (mounted) setState(() => _isSongDownloaded = false);
+      return;
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
-    final downloadedStrings =
-        _prefs!.getStringList(SharedPrefKeys.downloadedSongsDataList) ?? [];
+    final downloadedStrings = _prefs!.getStringList(
+            SharedPrefKeys.downloadedSongsDataListForUser(username)) ??
+        [];
+
     final currentId = widget.shopSong.uniqueIdentifier;
     bool found = false;
     String? lyrics;
+
     for (String data in downloadedStrings) {
       try {
         final song = Song.fromDataString(data);
-        if (song.uniqueIdentifier == currentId) {
+        if (song.shopUniqueIdentifierBasis == currentId) {
           if (await File(song.audioUrl).exists()) {
             found = true;
-            await song.loadLyrics(_prefs!);
             lyrics = song.lyrics;
             break;
           }
@@ -208,193 +248,150 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
         print("Error in _checkIfSongDownloadedAndUpdateLyrics: $e");
       }
     }
-    if (mounted)
+
+    if (mounted) {
       setState(() {
         _isSongDownloaded = found;
         _displayLyrics = lyrics ?? widget.shopSong.lyrics;
       });
+    }
   }
 
   Future<void> _checkIfSongIsAccessible() async {
     _prefs ??= await SharedPreferences.getInstance();
     if (!mounted) return;
     bool accessible = false;
-    if (widget.shopSong.requiredAccessTier == SongAccessTier.free)
+    if (widget.shopSong.requiredAccessTier == SongAccessTier.free) {
       accessible = true;
-    else if (_isSongDownloaded)
+    } else if (_isSongDownloaded) {
       accessible = true;
-    else if (_currentUserTier != sub_screen.SubscriptionTier.none &&
+    } else if (_currentUserTier != sub_screen.SubscriptionTier.none &&
         _subscriptionExpiry != null &&
         _subscriptionExpiry!.isAfter(DateTime.now())) {
       if (widget.shopSong.requiredAccessTier == SongAccessTier.standard &&
           (_currentUserTier == sub_screen.SubscriptionTier.standard ||
-              _currentUserTier == sub_screen.SubscriptionTier.premium))
+              _currentUserTier == sub_screen.SubscriptionTier.premium)) {
         accessible = true;
-      else if (widget.shopSong.requiredAccessTier == SongAccessTier.premium &&
-          _currentUserTier == sub_screen.SubscriptionTier.premium)
+      } else if (widget.shopSong.requiredAccessTier == SongAccessTier.premium &&
+          _currentUserTier == sub_screen.SubscriptionTier.premium) {
         accessible = true;
+      }
     }
+
     if (!accessible && widget.shopSong.isAvailableForPurchase) {
       final purchased =
           _prefs!.getStringList(SharedPrefKeys.purchasedSongIds) ?? [];
-      if (purchased.contains(widget.shopSong.uniqueIdentifier))
+      if (purchased.contains(widget.shopSong.uniqueIdentifier)) {
         accessible = true;
+      }
     }
     if (mounted) setState(() => _isSongAccessible = accessible);
   }
 
-  Future<bool> _requestStoragePermission() async {
-    if (Platform.isIOS)
-      return true; // iOS doesn't require explicit permission for app's own directory
-
-    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-    AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-    PermissionStatus status;
-
-    if (androidInfo.version.sdkInt >= 33) {
-      // Android 13+
-      // For saving in app-specific directories, no explicit media permissions are usually needed.
-      // However, if you were reading *shared* media, you'd request Permission.photos, Permission.audio, etc.
-      // Since we're writing to getApplicationDocumentsDirectory, this should be fine.
-      print(
-          "MusicShopSongDetail: Android 13+. App-specific directory write doesn't need explicit media permissions.");
-      return true;
-    } else {
-      // Android 12 and below (targetSDK < 33)
-      status = await Permission.storage.status;
-      print(
-          "MusicShopSongDetail: Storage permission status (Android <13): $status");
-      if (!status.isGranted) {
-        status = await Permission.storage.request();
-        print(
-            "MusicShopSongDetail: Storage permission requested. New status: $status");
-      }
-    }
-    return status.isGranted;
-  }
-
   Future<void> _downloadSong() async {
+    final username =
+        Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to download songs.')));
+      return;
+    }
+
     if (!_isSongAccessible) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('This song is not accessible for download yet.')));
+            content: Text(
+                'This song must be purchased or unlocked via subscription first.')));
+      }
       return;
     }
-    if (_isSongDownloaded) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('This song is already downloaded.')));
-      return;
-    }
-    if (_isDownloading) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Download already in progress...')));
-      return;
-    }
+    if (_isDownloading) return;
 
-    bool hasPermission = await _requestStoragePermission();
-
-    if (!hasPermission) {
+    var status = await Permission.audio.request();
+    if (status.isPermanentlyDenied) {
+      if (mounted) openAppSettings();
+      return;
+    }
+    if (!status.isGranted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content:
                 Text('Storage permission is required to download songs.')));
-        // چک کردن isPermanentlyDenied برای نمایش دیالوگ تنظیمات
-        // این بخش نیاز به بازبینی دارد که آیا status.isPermanentlyDenied پس از _requestStoragePermission در دسترس است یا نه
-        // اگر _requestStoragePermission فقط true/false برمی‌گرداند، باید status را جداگانه چک کنیم
-        var currentStatus =
-            await Permission.storage.status; // دوباره وضعیت را بگیر
-        if (currentStatus.isPermanentlyDenied) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text("Permission Denied"),
-              content: const Text(
-                  "Storage permission was permanently denied. Please enable it from app settings to download songs."),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text("Cancel")),
-                TextButton(
-                    onPressed: openAppSettings, child: const Text("Settings")),
-              ],
-            ),
-          );
-        }
       }
       return;
     }
 
-    print("MusicShopSongDetail: Permission granted. Proceeding with download.");
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
     });
 
     try {
-      Dio dio = Dio();
-      Directory appDocDir = await getApplicationDocumentsDirectory();
-      String fileName =
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String fileName =
           "${widget.shopSong.uniqueIdentifier.replaceAll(RegExp(r'[^\w\.-]'), '_')}.mp3";
-      String savePath = "${appDocDir.path}/$fileName";
+      final String savePath = "${appDir.path}/$fileName";
       print("Downloading '${widget.shopSong.title}' to: $savePath");
 
-      await dio.download(widget.shopSong.audioUrl, savePath,
-          onReceiveProgress: (rec, total) {
-        if (total != -1 && mounted)
-          setState(() => _downloadProgress = rec / total);
-      });
+      await Dio().download(
+        widget.shopSong.audioUrl,
+        savePath,
+        onReceiveProgress: (received, total) {
+          if (total != -1 && mounted) {
+            setState(() {
+              _downloadProgress = received / total;
+            });
+          }
+        },
+      );
 
       if (mounted) {
         _prefs ??= await SharedPreferences.getInstance();
-        List<String> downloadedList =
-            _prefs!.getStringList(SharedPrefKeys.downloadedSongsDataList) ?? [];
-        final Song downloadedEntry = widget.shopSong.copyWith(
-            audioUrl: savePath,
-            isDownloaded: true,
-            isLocal: true,
-            lyrics: _displayLyrics ?? widget.shopSong.lyrics,
-            dateAdded: DateTime.now(),
-            shopUniqueIdentifierBasis: widget.shopSong.uniqueIdentifier);
-        final String dataToStore = downloadedEntry.toDataString();
-        downloadedList.removeWhere((s) {
-          try {
-            return Song.fromDataString(s).uniqueIdentifier ==
-                downloadedEntry.uniqueIdentifier;
-          } catch (_) {
-            return false;
-          }
-        });
-        downloadedList.add(dataToStore);
+        List<String> downloadedList = _prefs!.getStringList(
+                SharedPrefKeys.downloadedSongsDataListForUser(username)) ??
+            [];
+
+        final Song downloadedEntry = Song(
+          title: widget.shopSong.title,
+          artist: widget.shopSong.artist,
+          audioUrl: savePath,
+          isDownloaded: true,
+          isLocal: true,
+          dateAdded: DateTime.now(),
+          shopUniqueIdentifierBasis: widget.shopSong.uniqueIdentifier,
+          coverImagePath: widget.shopSong.coverImagePath,
+          price: widget.shopSong.price,
+          requiredAccessTier: widget.shopSong.requiredAccessTier,
+        );
+
+        downloadedList.add(downloadedEntry.toDataString());
         await _prefs!.setStringList(
-            SharedPrefKeys.downloadedSongsDataList, downloadedList);
-        if (downloadedEntry.lyrics != null &&
-            downloadedEntry.lyrics!.isNotEmpty) {
-          await downloadedEntry.saveLyrics(_prefs!, downloadedEntry.lyrics!);
-        }
+            SharedPrefKeys.downloadedSongsDataListForUser(username),
+            downloadedList);
 
         setState(() {
           _isSongDownloaded = true;
-          _isSongAccessible = true;
           _isDownloading = false;
-          _downloadProgress = 0.0;
-          _displayLyrics = downloadedEntry.lyrics;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('"${widget.shopSong.title}" downloaded!')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text('"${widget.shopSong.title}" downloaded successfully!')));
+
         homeScreenKey.currentState?.refreshDataOnReturn();
       }
     } catch (e) {
-      print("Error downloading song '${widget.shopSong.title}': $e");
+      print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+      print("!!!!!! DOWNLOAD FAILED - THE REAL ERROR IS: !!!!!");
+      print(e.toString());
+      print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _downloadProgress = 0.0;
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
-                'Download failed for "${widget.shopSong.title}". Error: ${e.toString().split(" ").take(5).join(" ")}...')));
+                'Download failed. Check the debug console for the error.')));
       }
     }
   }
@@ -434,6 +431,11 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
       if (!purchased.contains(widget.shopSong.uniqueIdentifier))
         purchased.add(widget.shopSong.uniqueIdentifier);
       await _prefs!.setStringList(SharedPrefKeys.purchasedSongIds, purchased);
+
+      final userAuthProvider =
+          Provider.of<UserAuthProvider>(context, listen: false);
+      await userAuthProvider.updateUserCredit(newCredit);
+
       setState(() {
         _userCredit = newCredit;
         _isSongAccessible = true;
@@ -441,7 +443,6 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
               '"${widget.shopSong.title}" purchased! You can now download it.')));
-      // TODO: Notify UserAuthProvider to reload credit
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Purchase failed or cancelled.')));
@@ -473,13 +474,6 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _samplePlayer.dispose();
-    _commentController.dispose();
-    super.dispose();
-  }
-
   String _formatTimestamp(DateTime ts) {
     final diff = DateTime.now().difference(ts);
     if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
@@ -490,18 +484,13 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (کد کامل build دقیقا مثل پاسخ قبلی که برای همین فایل دادم و شما تایید کردید)
-    // از آنجایی که build طولانی است و تغییرات اصلی در منطق state بوده،
-    // برای جلوگیری از طولانی شدن بیش از حد این پاسخ، آن را دوباره اینجا تکرار نمی‌کنم.
-    // لطفا از کد build ارائه شده در پاسخ قبلی برای همین فایل استفاده کنید.
-    // مهم این است که آن کد build، از متغیرهای state این کلاس که حالا کامل‌تر شده‌اند،
-    // به درستی استفاده کند (مثلا _displayLyrics, _isDownloading, _isSongDownloaded, و غیره).
-
-    // برای اطمینان، بخش منطق دکمه اصلی را اینجا می‌آورم:
     final screenHeight = MediaQuery.of(context).size.height;
     final ThemeData theme = Theme.of(context);
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
+    print("--- BUILDING DETAIL SCREEN ---");
+    print("Song Title: ${widget.shopSong.title}");
+    print("Sample URL from Song object: '${widget.shopSong.sampleAudioUrl}'");
 
     if (_isScreenLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -520,36 +509,44 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
       mainActionButtonIcon = Icons.downloading_rounded;
       mainActionButtonOnPressed = null;
       mainActionButtonColor = Colors.grey[700]!;
-      isMainButtonEnabled = false;
     } else if (_isSongDownloaded) {
       mainActionButtonText = "Play Full Song";
       mainActionButtonIcon = Icons.play_circle_fill_rounded;
       mainActionButtonOnPressed = () async {
+        final username =
+            Provider.of<UserAuthProvider>(context, listen: false).username;
+        if (username == null) return;
+
         _prefs ??= await SharedPreferences.getInstance();
         Song? songToPlay;
-        final list =
-            _prefs!.getStringList(SharedPrefKeys.downloadedSongsDataList) ?? [];
+        final list = _prefs!.getStringList(
+                SharedPrefKeys.downloadedSongsDataListForUser(username)) ??
+            [];
         for (String data in list) {
           try {
             final s = Song.fromDataString(data);
-            if (s.uniqueIdentifier == widget.shopSong.uniqueIdentifier) {
-              await s.loadLyrics(_prefs!);
+            if (s.shopUniqueIdentifierBasis ==
+                widget.shopSong.uniqueIdentifier) {
               songToPlay = s;
               break;
             }
           } catch (_) {}
         }
-        if (songToPlay != null && mounted)
+        if (songToPlay != null && mounted) {
           Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => local_player.SongDetailScreen(
-                      initialSong: songToPlay!,
-                      songList: [songToPlay!],
-                      initialIndex: 0)));
-        else if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Could not play downloaded song.")));
+            context,
+            MaterialPageRoute(
+              builder: (_) => local_player.SongDetailScreen(
+                initialSong: songToPlay!,
+                songList: [songToPlay!],
+                initialIndex: 0,
+              ),
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("Error: Could not find downloaded song data.")));
+        }
       };
       mainActionButtonColor = Colors.greenAccent[700]!;
     } else if (_isSongAccessible) {
@@ -561,12 +558,13 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
       isMainButtonEnabled = false;
       mainActionButtonOnPressed = null;
       mainActionButtonColor = colorScheme.surfaceVariant.withOpacity(0.8);
-      mainActionButtonIcon = Icons.lock_outline_rounded;
+
       if (widget.shopSong.isAvailableForPurchase &&
-          _userCredit < widget.shopSong.price)
+          _userCredit < widget.shopSong.price) {
         mainActionButtonText =
             "Need ${widget.shopSong.price.toStringAsFixed(0)} Cr.";
-      else if (widget.shopSong.isAvailableForPurchase) {
+        mainActionButtonIcon = Icons.credit_card_off_outlined;
+      } else if (widget.shopSong.isAvailableForPurchase) {
         mainActionButtonText =
             "Purchase (${widget.shopSong.price.toStringAsFixed(0)} Cr.)";
         mainActionButtonIcon = Icons.shopping_cart_checkout_rounded;
@@ -574,19 +572,11 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
         isMainButtonEnabled = true;
         mainActionButtonColor = colorScheme.secondary;
       } else {
-        switch (widget.shopSong.requiredAccessTier) {
-          case SongAccessTier.standard:
-            mainActionButtonText = "Requires Standard Plan";
-            break;
-          case SongAccessTier.premium:
-            mainActionButtonText = "Requires Premium Plan";
-            break;
-          default:
-            mainActionButtonText = "Not Available";
-            break;
-        }
+        mainActionButtonText = "Requires Subscription";
+        mainActionButtonIcon = Icons.workspace_premium_outlined;
       }
     }
+
     mainActionButton = ElevatedButton.icon(
       icon: _isDownloading
           ? SizedBox(
@@ -595,84 +585,27 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
               child: CircularProgressIndicator(
                   value: _downloadProgress > 0 ? _downloadProgress : null,
                   strokeWidth: 2.5,
-                  color: theme.brightness == Brightness.dark
-                      ? Colors.black87
-                      : Colors.white))
+                  color: colorScheme.onPrimary),
+            )
           : Icon(mainActionButtonIcon,
-              size: 20,
               color: isMainButtonEnabled
-                  ? (mainActionButtonColor == Colors.greenAccent[700] ||
-                          mainActionButtonColor == Colors.tealAccent[400] ||
-                          mainActionButtonColor == colorScheme.secondary
-                      ? (theme.brightness == Brightness.dark
-                          ? Colors.black87
-                          : Colors.white)
-                      : colorScheme.onPrimary)
+                  ? colorScheme.onPrimary
                   : colorScheme.onSurface.withOpacity(0.7)),
       label: Text(mainActionButtonText,
           style: TextStyle(
               color: isMainButtonEnabled
-                  ? (mainActionButtonColor == Colors.greenAccent[700] ||
-                          mainActionButtonColor == Colors.tealAccent[400] ||
-                          mainActionButtonColor == colorScheme.secondary
-                      ? (theme.brightness == Brightness.dark
-                          ? Colors.black87
-                          : Colors.white)
-                      : colorScheme.onPrimary)
+                  ? colorScheme.onPrimary
                   : colorScheme.onSurface.withOpacity(0.7))),
       style: ElevatedButton.styleFrom(
-          backgroundColor: mainActionButtonColor,
-          disabledBackgroundColor: _isDownloading
-              ? Colors.grey[700]
-              : colorScheme.surfaceVariant.withOpacity(0.5),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          elevation: isMainButtonEnabled ? 2 : 0,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10.0))),
+        backgroundColor: mainActionButtonColor,
+        disabledBackgroundColor: Colors.grey[800],
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+      ),
       onPressed: mainActionButtonOnPressed,
     );
-    Widget subscriptionButton = Padding(
-      padding: const EdgeInsets.only(top: 12.0),
-      child: OutlinedButton.icon(
-        icon: Icon(Icons.workspace_premium_outlined, color: Colors.amber[600]),
-        label: Text(
-            _currentUserTier == sub_screen.SubscriptionTier.none
-                ? "Get Subscription"
-                : "Manage Subscription",
-            style: TextStyle(color: Colors.amber[600])),
-        style: OutlinedButton.styleFrom(
-            side: BorderSide(color: Colors.amber[600]!),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0))),
-        onPressed: _navigateToSubscriptionPage,
-      ),
-    );
-    Widget lyricsDisplayWidget = const SizedBox.shrink();
-    if (_displayLyrics != null && _displayLyrics!.isNotEmpty) {
-      lyricsDisplayWidget = Padding(
-          padding: const EdgeInsets.only(top: 24.0, left: 20.0, right: 20.0),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("Lyrics:",
-                style: textTheme.titleLarge?.copyWith(
-                    color: colorScheme.onBackground,
-                    fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: colorScheme.surfaceVariant.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text(_displayLyrics!,
-                    style: textTheme.bodyMedium
-                        ?.copyWith(color: colorScheme.onSurface, height: 1.6))),
-          ]));
-    }
 
-    // بقیه کد build که شامل AppBar, SingleChildScrollView, Column و ... است
-    // دقیقا مشابه کد build در پاسخ قبلی برای همین فایل است و اینجا برای اختصار حذف شده.
-    // لطفا آن را کپی کنید.
     return Scaffold(
         appBar: AppBar(
             backgroundColor: Colors.transparent,
@@ -689,7 +622,9 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                           : colorScheme.onSurface.withOpacity(0.8),
                       size: 28),
                   onPressed: _toggleFavorite,
-                  tooltip: _isFavorite ? "Remove from favs" : "Add to favs")
+                  tooltip: _isFavorite
+                      ? "Remove from favorites"
+                      : "Add to favorites")
             ]),
         extendBodyBehindAppBar: true,
         body: SingleChildScrollView(
@@ -725,17 +660,17 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                         child: Center(
                             child: FloatingActionButton.extended(
                                 onPressed: () async {
-                                  if (_samplePlayer.audioSource == null &&
-                                      widget.shopSong.sampleAudioUrl != null)
+                                  if (_samplePlayer.audioSource == null) {
                                     await _initSampleAudioPlayer(
                                         widget.shopSong.sampleAudioUrl!);
-                                  if (_samplePlayer.audioSource == null) return;
-                                  if (_isPlayingSample)
+                                  }
+                                  if (_isPlayingSample) {
                                     await _samplePlayer.pause();
-                                  else {
+                                  } else {
                                     if (_samplePlayer.processingState ==
-                                        ProcessingState.completed)
+                                        ProcessingState.completed) {
                                       await _samplePlayer.seek(Duration.zero);
+                                    }
                                     await _samplePlayer.play();
                                   }
                                 },
@@ -743,19 +678,14 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                     _isPlayingSample
                                         ? Icons.pause_circle_filled_outlined
                                         : Icons.play_circle_fill_outlined,
-                                    color: theme.brightness == Brightness.dark
-                                        ? Colors.black87
-                                        : Colors.white,
+                                    color: colorScheme.onPrimary,
                                     size: 22),
                                 label: Text(
                                     _isPlayingSample
                                         ? "Pause Sample"
                                         : "Play Sample",
                                     style: TextStyle(
-                                        color:
-                                            theme.brightness == Brightness.dark
-                                                ? Colors.black87
-                                                : Colors.white,
+                                        color: colorScheme.onPrimary,
                                         fontWeight: FontWeight.w600,
                                         fontSize: 14)),
                                 backgroundColor: Colors.tealAccent[400],
@@ -786,7 +716,7 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                   Text(widget.shopSong.averageRating
                                       .toStringAsFixed(1)),
                                   const SizedBox(width: 24),
-                                  Text("Rate it:"),
+                                  const Text("Rate it:"),
                                   const SizedBox(width: 8),
                                   Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -813,8 +743,61 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                     _currentUserTier !=
                                         sub_screen.SubscriptionTier.none) &&
                                 !_isSongDownloaded)
-                              subscriptionButton,
-                            lyricsDisplayWidget,
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12.0),
+                                child: OutlinedButton.icon(
+                                  icon: Icon(Icons.workspace_premium_outlined,
+                                      color: Colors.amber[600]),
+                                  label: Text(
+                                      _currentUserTier ==
+                                              sub_screen.SubscriptionTier.none
+                                          ? "Get Subscription"
+                                          : "Manage Subscription",
+                                      style:
+                                          TextStyle(color: Colors.amber[600])),
+                                  style: OutlinedButton.styleFrom(
+                                      side:
+                                          BorderSide(color: Colors.amber[600]!),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20, vertical: 12),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(10.0))),
+                                  onPressed: _navigateToSubscriptionPage,
+                                ),
+                              ),
+                            if (_displayLyrics != null &&
+                                _displayLyrics!.isNotEmpty)
+                              Padding(
+                                  padding: const EdgeInsets.only(
+                                      top: 24.0, left: 20.0, right: 20.0),
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text("Lyrics:",
+                                            style: textTheme.titleLarge
+                                                ?.copyWith(
+                                                    color: colorScheme
+                                                        .onBackground,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                        const SizedBox(height: 10),
+                                        Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                                color: colorScheme
+                                                    .surfaceVariant
+                                                    .withOpacity(0.5),
+                                                borderRadius:
+                                                    BorderRadius.circular(8)),
+                                            child: Text(_displayLyrics!,
+                                                style: textTheme.bodyMedium
+                                                    ?.copyWith(
+                                                        color: colorScheme
+                                                            .onSurface,
+                                                        height: 1.6))),
+                                      ])),
                             const SizedBox(height: 24),
                             Divider(
                                 color: colorScheme.onSurface.withOpacity(0.2)),
@@ -835,14 +818,14 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                 minLines: 1),
                             const SizedBox(height: 16),
                             _songComments.isEmpty
-                                ? Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 24),
+                                ? const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 24),
                                     child: Text("No comments yet.",
                                         textAlign: TextAlign.center))
                                 : ListView.separated(
                                     shrinkWrap: true,
-                                    physics: NeverScrollableScrollPhysics(),
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
                                     itemCount: _songComments.length,
                                     separatorBuilder: (_, __) => Divider(
                                         height: 24,
@@ -855,7 +838,7 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Row(children: [
-                                              CircleAvatar(
+                                              const CircleAvatar(
                                                   radius: 16,
                                                   child: Icon(
                                                       Icons.person_outline,
@@ -883,7 +866,7 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                                     left: 35),
                                                 child: Row(children: [
                                                   IconButton(
-                                                      icon: Icon(
+                                                      icon: const Icon(
                                                           Icons
                                                               .thumb_up_alt_outlined,
                                                           size: 16),
@@ -891,7 +874,7 @@ class _MusicShopSongDetailScreenState extends State<MusicShopSongDetailScreen> {
                                                   Text(com.likes.toString()),
                                                   const SizedBox(width: 12),
                                                   IconButton(
-                                                      icon: Icon(
+                                                      icon: const Icon(
                                                           Icons
                                                               .thumb_down_alt_outlined,
                                                           size: 16),

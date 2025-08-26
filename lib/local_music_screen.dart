@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'song_model.dart';
 import 'song_detail_screen.dart';
 import 'shared_pref_keys.dart';
+import 'user_auth_provider.dart';
 
 class LocalMusicScreen extends StatefulWidget {
   final Key? key; // اجازه می‌دهد کلید از بیرون پاس داده شود
@@ -149,9 +151,14 @@ class LocalMusicScreenState extends State<LocalMusicScreen> {
   }
 
   Future<void> _loadFavoriteSongIdentifiers() async {
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      if(mounted) setState(() => _favoriteSongUniqueIdentifiers = {});
+      return;
+    }
     _prefs ??= await SharedPreferences.getInstance();
     if (mounted) {
-      final List<String> favoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
+      final List<String> favoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ?? [];
       setState(() {
         _favoriteSongUniqueIdentifiers = favoriteIds.toSet();
       });
@@ -159,44 +166,43 @@ class LocalMusicScreenState extends State<LocalMusicScreen> {
   }
 
   Future<void> _toggleFavoriteStatus(Song song) async {
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to add favorites.')));
+      return;
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
-    List<String> currentFavoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
-    List<String> currentFavoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
+    List<String> currentFavoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataListForUser(username)) ?? [];
+    List<String> currentFavoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ?? [];
 
     final uniqueId = song.uniqueIdentifier;
     bool isCurrentlyPersistedAsFavorite = currentFavoriteIds.contains(uniqueId);
     String message;
 
-    if (mounted) {
-      setState(() {
-        if (!isCurrentlyPersistedAsFavorite) {
-          _favoriteSongUniqueIdentifiers.add(uniqueId);
-          message = '"${song.title}" added to favorites.';
-        } else {
-          _favoriteSongUniqueIdentifiers.remove(uniqueId);
-          message = '"${song.title}" removed from favorites.';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-      });
-    }
-
     if (!isCurrentlyPersistedAsFavorite) {
-      if (!currentFavoriteIds.contains(uniqueId)) {
-        currentFavoriteIds.add(uniqueId);
-        final Song songForFavorites = song.copyWith(dateAdded: DateTime.now());
-        currentFavoriteDataStrings.add(songForFavorites.toDataString());
-      }
+      currentFavoriteIds.add(uniqueId);
+      final Song songForFavorites = song.copyWith(dateAdded: DateTime.now());
+      currentFavoriteDataStrings.add(songForFavorites.toDataString());
+      message = '"${song.title}" added to favorites.';
     } else {
       currentFavoriteIds.remove(uniqueId);
       currentFavoriteDataStrings.removeWhere((dataStr) {
         try {
-          final songFromData = Song.fromDataString(dataStr);
-          return songFromData.uniqueIdentifier == uniqueId;
+          return Song.fromDataString(dataStr).uniqueIdentifier == uniqueId;
         } catch (e) { return false; }
       });
+      message = '"${song.title}" removed from favorites.';
     }
-    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiers, currentFavoriteIds);
-    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataList, currentFavoriteDataStrings);
+
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username), currentFavoriteIds);
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataListForUser(username), currentFavoriteDataStrings);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      await _loadFavoriteSongIdentifiers();
+    }
   }
 
   bool _isSongFavorite(Song song) {

@@ -2,9 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:provider/provider.dart';
 import 'song_model.dart';
 import 'song_detail_screen.dart';
 import 'shared_pref_keys.dart';
+import 'user_auth_provider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,29 +29,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   // آهنگ‌های نمونه اولیه با تاریخ افزودن
   final List<Song> _initialSampleUserMusic = [
-    Song(
-        title: "My Collection Hit 1",
-        artist: "Device Artist A",
-        coverImagePath: "assets/covers/D.jpg",
-        audioUrl:
-            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3",
-        isDownloaded: false,
-        // اینها آهنگ نمونه هستند، نه لزوما دانلود شده از شاپ
-        isLocal: true,
-        averageRating: 4.5,
-        dateAdded: DateTime(2023, 10, 20, 10, 0, 0) // تاریخ افزودن نمونه
-        ),
-    Song(
-        title: "Another Favorite Sample",
-        artist: "User Choice B",
-        coverImagePath: "assets/covers/OIP.jpg",
-        audioUrl:
-            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3",
-        isDownloaded: false,
-        isLocal: true,
-        averageRating: 4.2,
-        dateAdded: DateTime(2023, 11, 5, 15, 30, 0) // تاریخ افزودن نمونه
-        ),
+
   ];
 
   final ScrollController _scrollController = ScrollController();
@@ -58,9 +38,31 @@ class HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     print("HomeScreen (My Music): initState called");
+    // This is the listener that automatically reloads data when the user logs in or out.
+    Provider.of<UserAuthProvider>(context, listen: false)
+        .addListener(_onUserChanged);
     _initMyMusicScreen();
-    _searchController.addListener(
-        _applyFilterAndSort); // هر بار جستجو تغییر کرد، فیلتر و سورت کن
+    _searchController.addListener(_applyFilterAndSort);
+  }
+
+// This is the helper method that the listener calls.
+  void _onUserChanged() {
+    // When the login status changes, force a full refresh of the music list.
+    if (mounted) {
+      _loadMyMusicCollectionData(forceRefresh: true);
+    }
+  }
+
+// This is the updated dispose method to prevent memory leaks.
+  @override
+  void dispose() {
+    // We MUST remove the listener here.
+    Provider.of<UserAuthProvider>(context, listen: false)
+        .removeListener(_onUserChanged);
+    _searchController.removeListener(_applyFilterAndSort);
+    _searchController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _initMyMusicScreen() async {
@@ -72,19 +74,15 @@ class HomeScreenState extends State<HomeScreen> {
         forceRefresh: true); // بار اول، کامل لود کن
   }
 
-  @override
-  void dispose() {
-    _searchController.removeListener(_applyFilterAndSort);
-    _searchController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadFavoriteSongIdentifiers() async {
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      if(mounted) setState(() => _favoriteSongUniqueIdentifiers = {});
+      return;
+    }
     _prefs ??= await SharedPreferences.getInstance();
-    final List<String> favoriteIds =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
     if (mounted) {
+      final List<String> favoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ?? [];
       setState(() {
         _favoriteSongUniqueIdentifiers = favoriteIds.toSet();
       });
@@ -92,49 +90,49 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _toggleFavoriteStatus(Song song) async {
+    // First, get the current user's name.
+    final username = Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to add favorites.')));
+      return;
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
-    List<String> currentFavoriteDataStrings =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataList) ?? [];
-    List<String> currentFavoriteIds =
-        _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiers) ?? [];
+
+    // Use the new user-specific methods to get the lists.
+    List<String> currentFavoriteDataStrings = _prefs!.getStringList(SharedPrefKeys.favoriteSongsDataListForUser(username)) ?? [];
+    List<String> currentFavoriteIds = _prefs!.getStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username)) ?? [];
+
     final uniqueId = song.uniqueIdentifier;
     bool isCurrentlyPersistedAsFavorite = currentFavoriteIds.contains(uniqueId);
     String message;
 
-    if (mounted) {
-      setState(() {
-        if (!isCurrentlyPersistedAsFavorite) {
-          _favoriteSongUniqueIdentifiers.add(uniqueId);
-          message = '"${song.title}" added to favorites.';
-        } else {
-          _favoriteSongUniqueIdentifiers.remove(uniqueId);
-          message = '"${song.title}" removed from favorites.';
-        }
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
-      });
-    }
-
     if (!isCurrentlyPersistedAsFavorite) {
-      if (!currentFavoriteIds.contains(uniqueId)) {
-        currentFavoriteIds.add(uniqueId);
-        final Song songWithDate = song.copyWith(dateAdded: DateTime.now());
-        currentFavoriteDataStrings.add(songWithDate.toDataString());
-      }
+      currentFavoriteIds.add(uniqueId);
+      final Song songWithDate = song.copyWith(dateAdded: DateTime.now());
+      currentFavoriteDataStrings.add(songWithDate.toDataString());
+      message = '"${song.title}" added to favorites.';
     } else {
       currentFavoriteIds.remove(uniqueId);
       currentFavoriteDataStrings.removeWhere((dataStr) {
         try {
           return Song.fromDataString(dataStr).uniqueIdentifier == uniqueId;
-        } catch (e) {
-          return false;
-        }
+        } catch (e) { return false; }
       });
+      message = '"${song.title}" removed from favorites.';
     }
-    await _prefs!.setStringList(
-        SharedPrefKeys.favoriteSongIdentifiers, currentFavoriteIds);
-    await _prefs!.setStringList(
-        SharedPrefKeys.favoriteSongsDataList, currentFavoriteDataStrings);
+
+    // Save the updated lists back to the phone's storage using the user-specific keys.
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongIdentifiersForUser(username), currentFavoriteIds);
+    await _prefs!.setStringList(SharedPrefKeys.favoriteSongsDataListForUser(username), currentFavoriteDataStrings);
+
+    // This part updates the UI locally
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      // Reload the favorite identifiers to update the heart icons
+      await _loadFavoriteSongIdentifiers();
+    }
   }
 
   bool _isSongFavorite(Song song) {
@@ -142,23 +140,35 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Future<List<Song>> _getDownloadedSongsFromShop() async {
+    // Step 1: Get the current user's name from the provider.
+    final username =
+        Provider.of<UserAuthProvider>(context, listen: false).username;
+    if (username == null || username.isEmpty) {
+      // If no one is logged in, they have no downloaded songs. Return an empty list.
+      return [];
+    }
+
     _prefs ??= await SharedPreferences.getInstance();
-    final List<String> downloadedDataStrings =
-        _prefs!.getStringList(SharedPrefKeys.downloadedSongsDataList) ?? [];
+
+    // Step 2: Use the correct, user-specific method to get the list from storage.
+    final List<String> downloadedDataStrings = _prefs!.getStringList(
+            SharedPrefKeys.downloadedSongsDataListForUser(username)) ??
+        [];
+
     List<Song> parsedSongs = [];
     for (String dataString in downloadedDataStrings) {
       try {
         final song = Song.fromDataString(dataString);
-        // اطمینان از اینکه isDownloaded = true است و dateAdded از SharedPreferences خوانده شده
-        parsedSongs.add(song.copyWith(
-            isDownloaded: true)); // isLocal باید از خود آهنگ خوانده شود
+        // Ensure the song is marked as downloaded
+        parsedSongs.add(song.copyWith(isDownloaded: true));
       } catch (e) {
         print(
-            "HomeScreen: Error parsing downloaded song data in _getDownloadedSongsFromShop: $dataString, Error: $e");
+            "HomeScreen: Error parsing a downloaded song's data: $dataString, Error: $e");
       }
     }
+
     print(
-        "HomeScreen: _getDownloadedSongsFromShop loaded ${parsedSongs.length} songs.");
+        "HomeScreen: Loaded ${parsedSongs.length} downloaded songs for user '$username'.");
     return parsedSongs;
   }
 

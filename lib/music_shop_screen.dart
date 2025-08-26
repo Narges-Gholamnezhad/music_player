@@ -19,47 +19,33 @@ class MusicShopScreen extends StatefulWidget {
 }
 
 class _MusicShopScreenState extends State<MusicShopScreen> {
+  // REPLACE your old _categories list with this new one.
+
   final List<CategoryModel> _categories = [
     CategoryModel(
-        name: 'Latest Hits 🔥',
+        name: 'Latest Hits',
         icon: Icons.whatshot_outlined,
         color: Colors.deepOrangeAccent[200]!),
     CategoryModel(
-        name: 'Persian Music 🇮🇷',
+        name: 'Persian',
         icon: Icons.music_note,
         color: Colors.greenAccent[400]!),
     CategoryModel(
-        name: 'International 🌍',
+        name: 'International',
         icon: Icons.public,
         color: Colors.lightBlueAccent[200]!),
     CategoryModel(
-        name: 'Pop Stars 🎤',
+        name: 'Pop Stars',
         icon: Icons.star_outline,
         color: Colors.purpleAccent[100]!),
     CategoryModel(
-        name: 'Rock Anthems 🎸',
+        name: 'Rock Anthems', // This will be empty, which is okay
         icon: Icons.music_video_outlined,
         color: Colors.redAccent[100]!),
     CategoryModel(
-        name: 'Chill Vibes 🧘',
+        name: 'Local', // This will be empty, which is okay
         icon: Icons.spa_outlined,
         color: Colors.tealAccent[200]!),
-    CategoryModel(
-        name: 'Classical Masters 🎻',
-        icon: Icons.menu_book_outlined,
-        color: Colors.brown[300]!),
-    CategoryModel(
-        name: 'Electronic Beats 🎧',
-        icon: Icons.headphones_battery_outlined,
-        color: Colors.cyanAccent[200]!),
-    CategoryModel(
-        name: 'Top Charts 📊',
-        icon: Icons.trending_up,
-        color: Colors.amberAccent[200]!),
-    CategoryModel(
-        name: 'Workout Fuel 💪',
-        icon: Icons.fitness_center,
-        color: Colors.blueGrey[300]!),
   ];
 
   @override
