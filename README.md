@@ -1,16 +1,22 @@
-# music_player
+# Music Player Project 🎵
 
-A new Flutter project.
+This project is a **Flutter + Java Backend** music player app.  
+Here are some screenshots from our app:
 
-## Getting Started
+## Screenshots
 
-This project is a starting point for a Flutter application.
+### Local Page
+![Local Page](assets/readme/local_music.png)
 
-A few resources to get you started if this is your first Flutter project:
+### Home Page
+![Home Page](assets/readme/home_screen.png)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Favorite Page
+![Favorite Page](assets/readme/favorite_screen.png)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Backend
+The backend is implemented in **Java** with socket programming and file-based database.
+
+## Frontend
+The frontend is built with **Flutter**, providing a modern UI/UX.
+
