@@ -27,7 +27,7 @@ Here are some screenshots from our app:
 <img src="assets/readme/sort_music.png" alt="Sort Local Page" width="300">
 
 ### Create Account Page
-<img src="assets/readme/create_account" alt="Create Account Page" width="300">
+<img src="assets/readme/create_account.png" alt="Create Account Page" width="300">
 
 ### Login Page
 <img src="assets/readme/login_screen.png" alt="Login Page" width="300">
@@ -39,7 +39,7 @@ Here are some screenshots from our app:
 <img src="assets/readme/user_profile.png" alt="User Profile Page" width="300">
 
 ### Edit Profile Page
-<img src="assets/readme/edit_profile" alt="Edit Profile Page" width="300">
+<img src="assets/readme/edit_profile.png" alt="Edit Profile Page" width="300">
 
 ### Add Credit Section
 <img src="assets/readme/add_credit.png" alt="Add Credit Section" width="300">
