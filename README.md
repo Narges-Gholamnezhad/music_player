@@ -6,13 +6,13 @@ Here are some screenshots from our app:
 ## Screenshots
 
 ### Local Page
-![Local Page](assets/readme/local_music.png)
+<img src="assets/readme/local_screen.png" alt="Local Page" width="300">
 
 ### Home Page
-![Home Page](assets/readme/home_screen.png)
+<img src="assets/readme/home_screen.png" alt="Home Page" width="300">
 
 ### Favorite Page
-![Favorite Page](assets/readme/favorite_screen.png)
+<img src="assets/readme/favorite_screen.png" alt="Favorite Page" width="300">
 
 ## Backend
 The backend is implemented in **Java** with socket programming and file-based database.
